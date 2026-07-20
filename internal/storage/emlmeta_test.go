@@ -38,3 +38,29 @@ func TestPeekEMLMeta(t *testing.T) {
 		t.Fatal("expected From match")
 	}
 }
+
+func TestDecodeMIMEHeader(t *testing.T) {
+	in := "=?iso-8859-1?Q?AW:_=DCberwachungsvideo_Bitte_um_Pr=FCfung?="
+	got := DecodeMIMEHeader(in)
+	want := "AW: Überwachungsvideo Bitte um Prüfung"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	if DecodeMIMEHeader("plain subject") != "plain subject" {
+		t.Fatal("plain passthrough")
+	}
+}
+
+func TestPeekEMLMetaRFC2047(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "msg.eml")
+	body := "Subject: =?iso-8859-1?Q?AW:_=DCberwachungsvideo_Bitte_um_Pr=FCfung?=\r\n\r\nBody\r\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	meta := PeekEMLMeta(path)
+	want := "AW: Überwachungsvideo Bitte um Prüfung"
+	if meta.Subject != want {
+		t.Fatalf("subject=%q want %q", meta.Subject, want)
+	}
+}

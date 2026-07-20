@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"bytes"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,7 +99,7 @@ func PeekEMLMeta(absPath string) EMLMeta {
 	}
 
 	clean := func(s string) string {
-		s = decodeSimpleMIMEWords(strings.TrimSpace(s))
+		s = DecodeMIMEHeader(strings.TrimSpace(s))
 		if !utf8.ValidString(s) {
 			s = strings.ToValidUTF8(s, "")
 		}
@@ -115,11 +116,17 @@ func PeekEMLMeta(absPath string) EMLMeta {
 	}
 }
 
-func decodeSimpleMIMEWords(s string) string {
+// DecodeMIMEHeader decodes RFC 2047 encoded-words (e.g. =?iso-8859-1?Q?...?=).
+// Plain UTF-8 headers are returned unchanged.
+func DecodeMIMEHeader(s string) string {
 	if !strings.Contains(s, "=?") {
 		return s
 	}
-	return s
+	decoded, err := new(mime.WordDecoder).DecodeHeader(s)
+	if err != nil || decoded == "" {
+		return s
+	}
+	return decoded
 }
 
 // EnrichEMLEntry fills Subject/From/To on a BrowseEntry when the path is an .eml.

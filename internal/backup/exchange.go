@@ -17,6 +17,7 @@ import (
 
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
+	"github.com/rhw/m365backup/internal/storage"
 )
 
 // ExchangeBackup backs up Exchange Online mailboxes.
@@ -477,7 +478,7 @@ func underRoot(root, target string) bool {
 
 // emlFileName builds "Betreff hier__a1b2c3d4.eml" — readable + unique per Graph message id.
 func emlFileName(subject, mid string) string {
-	subj := sanitize(subject)
+	subj := sanitize(storage.DecodeMIMEHeader(subject))
 	subj = strings.ReplaceAll(subj, "  ", " ")
 	if subj == "" || subj == "_" {
 		subj = "ohne-betreff"
