@@ -1,0 +1,78 @@
+# M365 Backup + MySQL
+#
+# 1) Copy env:  cp .env.example .env
+# 2) Set paths + secrets in .env
+# 3) Start:     docker compose up -d --build
+#
+# Host paths (edit in .env):
+#   DATA_KOPIA_PATH   → snapshot repos
+#   DATA_STAGING_PATH → temp backup staging
+#   MYSQL_DATA_PATH   → MySQL datadir
+#
+# Linux note: do NOT reuse a MySQL datadir that was initialized on macOS/Windows.
+# Wipe MYSQL_DATA_PATH once and let MySQL recreate it on the server.
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-m365backup}
+      MYSQL_USER: ${MYSQL_USER:-m365backup}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - ${MYSQL_DATA_PATH:-./data/mysql}:/var/lib/mysql
+    # Not published to the host — only reachable as hostname "mysql" on the compose network
+    healthcheck:
+      # $$ = container env (not host interpolation). Avoids forever-"starting" with healthcheck.sh.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - m365backup
+
+  m365backup:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        # App already retries MySQL connect on startup; don't block compose forever on health.
+        condition: service_started
+    ports:
+      - "${HTTP_PUBLISH_PORT:-8080}:8080"
+    environment:
+      HTTP_ADDR: ":8080"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      DB_DRIVER: mysql
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-m365backup}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-m365backup}
+      KOPIA_ROOT: /data/kopia
+      STAGING_ROOT: /data/staging
+      MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}
+      EXCHANGE_WORKERS: ${EXCHANGE_WORKERS:-6}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TO: ${SMTP_TO:-}
+    volumes:
+      - ${DATA_KOPIA_PATH:-./data/kopia}:/data/kopia
+      - ${DATA_STAGING_PATH:-./data/staging}:/data/staging
+    networks:
+      - m365backup
+
+networks:
+  m365backup:
+    driver: bridge

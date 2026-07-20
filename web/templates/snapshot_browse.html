@@ -1,0 +1,71 @@
+{{define "snapshot_browse.html"}}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Snapshot {{.SnapID}} · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav>
+      <a href="/tenants/{{.Tenant.ID}}">← {{.Tenant.Name}}</a>
+      <a href="/tenants/{{.Tenant.ID}}/restore">Restore</a>
+    </nav>
+  </header>
+  <main class="wrap">
+    <h1>Snapshot durchsuchen</h1>
+    <p class="muted"><code>{{.SnapID}}</code></p>
+
+    <form class="row gap" method="get" action="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}" style="margin:1rem 0">
+      <input type="search" name="q" value="{{.Query}}" placeholder="Suche: Name, UPN, Pfad, .eml …" style="flex:1;min-width:200px">
+      {{if .Path}}<input type="hidden" name="path" value="{{.Path}}">{{end}}
+      <button type="submit">Suchen</button>
+      {{if .Query}}<a class="btn secondary" href="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}">Reset</a>{{end}}
+    </form>
+
+    {{if not .Query}}
+    <p class="path-bar">
+      <a href="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}">/</a>
+      {{if .Path}}{{.Path}}{{end}}
+    </p>
+    {{if or .Path .Parent}}
+    <p><a class="btn secondary" href="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}{{if .Parent}}?path={{.Parent}}{{end}}">↑ Parent</a></p>
+    {{end}}
+    {{else}}
+    <p class="muted">Suchergebnisse für <strong>{{.Query}}</strong> (max. 500 Treffer)</p>
+    {{end}}
+
+    <table>
+      <thead><tr><th>Name / Pfad</th><th>Size</th><th></th></tr></thead>
+      <tbody>
+      {{range .Entries}}
+        <tr>
+          <td>
+            {{if .IsDir}}
+            📁 <a href="/tenants/{{$.Tenant.ID}}/snapshots/{{$.SnapID}}?path={{.Path}}">{{if $.Query}}{{.Path}}{{else}}{{.Name}}{{end}}</a>
+            {{else}}
+            📄 {{if $.Query}}{{.Path}}{{else}}{{.Name}}{{end}}
+            {{end}}
+          </td>
+          <td>{{if not .IsDir}}{{.Size}}{{end}}</td>
+          <td>
+            {{if not .IsDir}}
+            <a class="btn secondary btn-sm" href="/tenants/{{$.Tenant.ID}}/snapshots/{{$.SnapID}}/file?path={{.Path}}">Download</a>
+            {{end}}
+          </td>
+        </tr>
+      {{else}}
+        <tr><td colspan="3" class="muted">
+          {{if .Query}}Keine Treffer.{{else}}Leer — in diesem Snapshot liegen keine Dateien (z.B. nur Skips ohne Mailbox). Nach einem neuen Exchange-Backup mit voller User-Pagination erneut prüfen.{{end}}
+        </td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,46 @@
+{{define "restore.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Restore · {{.Tenant.Name}}</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav><a href="/tenants/{{.Tenant.ID}}">Back</a></nav>
+  </header>
+  <main class="wrap narrow">
+    <h1>Restore · {{.Tenant.Name}}</h1>
+    <form method="post" action="/tenants/{{.Tenant.ID}}/restore" class="stack">
+      <label>Snapshot
+        <select name="snapshot_id" required>
+          {{range .Snapshots}}
+          <option value="{{.ID}}">{{.ID}} ({{.CreatedAt.Format "2006-01-02 15:04"}})</option>
+          {{end}}
+        </select>
+      </label>
+      <label>Mode
+        <select name="mode">
+          <option value="zip">Download ZIP (Exchange EML / Teams archive / files)</option>
+          <option value="graph">Upload to Graph (OneDrive / SharePoint)</option>
+        </select>
+      </label>
+      <label>Service (for Graph upload)
+        <select name="service">
+          <option value="onedrive">onedrive</option>
+          <option value="sharepoint">sharepoint</option>
+          <option value="exchange">exchange</option>
+          <option value="teams">teams</option>
+        </select>
+      </label>
+      <button type="submit">Restore</button>
+    </form>
+    <p class="muted">Teams restores are archive-only (ZIP). Graph upload requires Files.ReadWrite.All (or equivalent) on the app registration.</p>
+  </main>
+</body>
+</html>
+{{end}}

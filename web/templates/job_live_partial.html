@@ -1,0 +1,53 @@
+{{define "job_live_partial.html"}}
+<div id="job-live"
+     {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
+     hx-get="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/live"
+     hx-trigger="every 3s"
+     hx-swap="outerHTML"
+     hx-on::after-settle="document.getElementById('job-log-view') && (document.getElementById('job-log-view').scrollTop = document.getElementById('job-log-view').scrollHeight + 1e6)"
+     {{end}}>
+  {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
+  <form method="post" action="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/cancel" class="inline"
+        onsubmit="return confirm('Backup wirklich stoppen?');">
+    <button type="submit" class="btn-stop">Backup stoppen</button>
+  </form>
+  {{end}}
+
+  <section class="progress-panel {{.Job.Status}}">
+    <div class="progress-head">
+      <strong class="progress-pct">{{.Job.ProgressPct}}%</strong>
+      <span class="progress-now">{{if .Job.ProgressMessage}}{{.Job.ProgressMessage}}{{else if or (eq .Job.Status "running") (eq .Job.Status "queued")}}Warteschlange / Start…{{else}}—{{end}}</span>
+    </div>
+    <div class="progress-track" role="progressbar" aria-valuenow="{{.Job.ProgressPct}}" aria-valuemin="0" aria-valuemax="100">
+      <div class="progress-fill" style="width: {{.Job.ProgressPct}}%"></div>
+    </div>
+    {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
+    <p class="muted progress-hint">Live · Items {{.Job.ItemsNew}} · {{.Job.BytesTransferred}} bytes</p>
+    {{end}}
+  </section>
+
+  {{if .Job.ErrorMessage}}
+  <p class="callout"><strong>Summary:</strong> {{.Job.ErrorMessage}}</p>
+  {{end}}
+
+  <section class="guide-panel">
+    <h2>Detail-Log</h2>
+    <p class="muted">Nur Info/Warn/Error — neueste Einträge unten.</p>
+    {{if .Logs}}
+    <div class="log-view" id="job-log-view">
+      {{range .Logs}}
+      {{if ne .Level "skip"}}
+      <div class="log-line log-{{.Level}}">
+        <span class="log-lvl">{{.Level}}</span>
+        <span class="log-msg">{{.Message}}</span>
+      </div>
+      {{end}}
+      {{end}}
+      <div id="job-log-anchor"></div>
+    </div>
+    {{else}}
+    <p class="muted">Kein Detail-Log (Job vor Einführung der job_logs-Tabelle, oder noch leer).</p>
+    {{end}}
+  </section>
+</div>
+{{end}}

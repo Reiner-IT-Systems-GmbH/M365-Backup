@@ -1,0 +1,688 @@
+openapi: 3.0.3
+info:
+  title: M365 Backup API
+  description: |
+    JSON API for the self-hosted multi-tenant Microsoft 365 backup control plane.
+
+    Most routes require a valid session cookie (`session`) obtained via `POST /login`.
+    The consent callback is unauthenticated (Microsoft redirect). Health checks are public.
+
+    This software is provided as-is for self-hosted use.
+    Free community support is not included. For commercial support,
+    contact Reiner IT-Systems: https://www.reiner-itsystems.de/kontakt/
+  version: 1.0.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  contact:
+    name: Reiner IT-Systems GmbH
+
+servers:
+  - url: http://localhost:8080
+    description: Replaced at runtime with PUBLIC_BASE_URL / this instance
+
+tags:
+  - name: health
+  - name: auth
+  - name: tenants
+  - name: jobs
+  - name: schedules
+  - name: restore
+  - name: notifications
+  - name: consent
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Service is up
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /login:
+    post:
+      tags: [auth]
+      summary: Create admin session
+      description: |
+        Form login with `ADMIN_PASSWORD`. Sets an HttpOnly `session` cookie (24h TTL).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+      responses:
+        "302":
+          description: "Redirect to `/tenants` on success"
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: session=<uuid>; Path=/; HttpOnly; SameSite=Lax
+        "401":
+          description: Invalid password
+
+  /logout:
+    post:
+      tags: [auth]
+      summary: Invalidate session
+      responses:
+        "302":
+          description: "Redirect to `/login`"
+
+  /api/tenants:
+    get:
+      tags: [tenants]
+      summary: List tenants
+      parameters:
+        - name: usage
+          in: query
+          description: "When `1`, embed a storage usage report per tenant"
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: Tenant list
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/Tenant"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/TenantWithUsage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+
+    post:
+      tags: [tenants]
+      summary: Create tenant
+      description: |
+        Creates a tenant, encrypts the Azure client secret with `MASTER_KEY`,
+        generates a repository password, and initializes default schedules.
+        Status starts as `setup` until admin consent completes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "200":
+          description: Created tenant (secrets stored encrypted)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  "/api/tenants/{id}/usage":
+    get:
+      tags: [tenants]
+      summary: Tenant storage usage (cached)
+      description: |
+        Returns cached disk usage from `tenant_usage` (hourly cron + manual refresh).
+        Pass `fresh=1` to measure now, store, and return.
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - name: fresh
+          in: query
+          schema:
+            type: string
+            enum: ["1"]
+          description: Measure live and update cache
+      responses:
+        "200":
+          description: Cached or freshly measured usage
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/UsageReport"
+                  - type: object
+                    properties:
+                      cached:
+                        type: boolean
+                      measured_at:
+                        type: string
+                        format: date-time
+                      usage:
+                        $ref: "#/components/schemas/UsageReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Tenant not found
+
+  "/api/tenants/{id}/usage/refresh":
+    post:
+      tags: [tenants]
+      summary: Refresh cached usage for one tenant
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Measurement stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  measured_at:
+                    type: string
+                    format: date-time
+                  usage:
+                    $ref: "#/components/schemas/UsageReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Tenant not found
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/tenants/usage/refresh:
+    post:
+      tags: [tenants]
+      summary: Refresh usage for all tenants (background)
+      description: Starts an asynchronous scan of every tenant repo. Returns immediately.
+      responses:
+        "200":
+          description: Whether a new scan was started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  started:
+                    type: boolean
+                  running:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  "/api/tenants/{id}/jobs":
+    get:
+      tags: [jobs]
+      summary: List recent jobs for a tenant
+      description: Returns up to 50 most recent jobs.
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  "/api/tenants/{id}/schedule":
+    put:
+      tags: [schedules]
+      summary: Update backup schedules
+      description: Batch-update cron expression and enabled flag for existing schedule rows.
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ScheduleUpdate"
+      responses:
+        "204":
+          description: Schedules updated; scheduler reloaded
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  "/api/tenants/{id}/restore":
+    post:
+      tags: [restore]
+      summary: Restore a snapshot
+      description: |
+        Form-encoded restore. Default mode exports a ZIP download.
+        For OneDrive/SharePoint, `mode=graph` uploads into `M365Backup-Restore/` via Microsoft Graph.
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [snapshot_id]
+              properties:
+                snapshot_id:
+                  type: string
+                  description: Snapshot identifier in the tenant repo
+                mode:
+                  type: string
+                  enum: [zip, graph]
+                  default: zip
+                  description: "`graph` only for onedrive/sharepoint"
+                service:
+                  type: string
+                  enum: [exchange, onedrive, teams, sharepoint]
+                  description: "Required when mode is `graph`"
+      responses:
+        "200":
+          description: ZIP download (non-graph mode)
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "302":
+          description: Redirect after successful Graph restore
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Tenant not found
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/settings/notifications:
+    get:
+      tags: [notifications]
+      summary: List notification channels
+      responses:
+        "200":
+          description: Notification settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationSetting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+
+    put:
+      tags: [notifications]
+      summary: Create or update a notification channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationSetting"
+      responses:
+        "200":
+          description: Upserted setting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSetting"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  "/api/consent/start/{id}":
+    get:
+      tags: [consent]
+      summary: Start Azure admin consent
+      description: Redirects the browser to Microsoft for admin consent for the given tenant.
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "302":
+          description: Redirect to Microsoft login / admin consent
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Tenant not found
+
+  /api/consent/callback:
+    get:
+      tags: [consent]
+      summary: Azure admin consent callback
+      description: |
+        Unauthenticated redirect target registered in the Azure app.
+        On success, tenant status becomes `active` and first full backups are enqueued.
+      security: []
+      parameters:
+        - name: admin_consent
+          in: query
+          schema:
+            type: string
+        - name: tenant
+          in: query
+          description: Azure tenant ID from Microsoft
+          schema:
+            type: string
+        - name: state
+          in: query
+          description: Signed state issued by consent start
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to tenant detail page
+        "400":
+          description: Invalid or expired state / consent error
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: "Session token from `POST /login`"
+
+  parameters:
+    TenantId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid session cookie
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: unauthorized
+    Error:
+      description: Error message as plain text
+      content:
+        text/plain:
+          schema:
+            type: string
+
+  schemas:
+    CreateTenantRequest:
+      type: object
+      required: [Name, AzureTenantID, ClientID, ClientSecret]
+      properties:
+        Name:
+          type: string
+          example: Contoso
+        AzureTenantID:
+          type: string
+          format: uuid
+          description: Entra ID / Azure AD tenant ID
+        ClientID:
+          type: string
+          format: uuid
+          description: App registration (client) ID
+        ClientSecret:
+          type: string
+          format: password
+          description: App client secret (encrypted at rest; never returned in cleartext)
+        SecretExpires:
+          type: string
+          format: date-time
+          description: Optional client-secret expiry for monitoring alerts
+
+    Tenant:
+      type: object
+      description: >
+        Go default JSON field names (PascalCase). ClientSecret and KopiaPassword
+        are omitted (empty) in API responses.
+      properties:
+        ID:
+          type: string
+          format: uuid
+        Name:
+          type: string
+        AzureTenantID:
+          type: string
+        ClientID:
+          type: string
+        ClientSecret:
+          type: string
+          description: Omitted in responses (never returned)
+        SecretExpires:
+          type: string
+          format: date-time
+        KopiaPassword:
+          type: string
+          description: Omitted in responses (never returned)
+        KopiaRepoPath:
+          type: string
+        Status:
+          type: string
+          enum: [setup, active, error, disabled]
+        RetentionJSON:
+          type: string
+          description: Smart retention policy as JSON string
+        CreatedAt:
+          type: string
+          format: date-time
+        UpdatedAt:
+          type: string
+          format: date-time
+
+    TenantWithUsage:
+      allOf:
+        - $ref: "#/components/schemas/Tenant"
+        - type: object
+          properties:
+            usage:
+              $ref: "#/components/schemas/UsageReport"
+
+    Job:
+      type: object
+      properties:
+        ID:
+          type: string
+          format: uuid
+        TenantID:
+          type: string
+          format: uuid
+        ScheduleID:
+          type: string
+        Service:
+          type: string
+          enum: [exchange, onedrive, teams, sharepoint, pst]
+        JobType:
+          type: string
+          enum: [full, delta, export]
+        Status:
+          type: string
+          enum: [queued, running, success, warning, error, cancelled]
+        StartedAt:
+          type: string
+          format: date-time
+        FinishedAt:
+          type: string
+          format: date-time
+        ItemsNew:
+          type: integer
+        ItemsTotal:
+          type: integer
+        BytesTransferred:
+          type: integer
+          format: int64
+        ErrorMessage:
+          type: string
+        KopiaSnapshot:
+          type: string
+        ProgressPct:
+          type: integer
+        ProgressMessage:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+
+    ScheduleUpdate:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Existing schedule row ID
+        cron_expr:
+          type: string
+          example: "0 2 * * *"
+          description: Standard cron expression (robfig/cron)
+        enabled:
+          type: boolean
+
+    NotificationSetting:
+      type: object
+      properties:
+        ID:
+          type: string
+          format: uuid
+        TenantID:
+          type: string
+          description: Empty string = global channel
+        Channel:
+          type: string
+          enum: [smtp, pushover, webhook]
+        Enabled:
+          type: boolean
+        Config:
+          type: string
+          description: Channel-specific JSON; secrets (password, tokens) are empty in GET responses
+        NotifyOn:
+          type: string
+          description: |
+            JSON array of event types, e.g.
+            `["job_error","key_expiry_7d","restore_done"]`
+        CreatedAt:
+          type: string
+          format: date-time
+
+    UsageReport:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        repo_path:
+          type: string
+        measured_at:
+          type: string
+          format: date-time
+        total_bytes:
+          type: integer
+          format: int64
+        total_human:
+          type: string
+          example: "12.4 GiB"
+        total_gb:
+          type: number
+          format: double
+        snapshots_bytes:
+          type: integer
+          format: int64
+        snapshots_human:
+          type: string
+        sync_bytes:
+          type: integer
+          format: int64
+        sync_human:
+          type: string
+        other_bytes:
+          type: integer
+          format: int64
+        other_human:
+          type: string
+        exports_bytes:
+          type: integer
+          format: int64
+        exports_human:
+          type: string
+        by_service:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceUsage"
+        top_users:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserUsage"
+        largest_service:
+          type: string
+        largest_user:
+          type: string
+
+    ServiceUsage:
+      type: object
+      properties:
+        service:
+          type: string
+        sync_bytes:
+          type: integer
+          format: int64
+        sync_human:
+          type: string
+        snapshot_bytes:
+          type: integer
+          format: int64
+        snapshot_human:
+          type: string
+        snapshot_count:
+          type: integer
+        total_bytes:
+          type: integer
+          format: int64
+        total_human:
+          type: string
+
+    UserUsage:
+      type: object
+      properties:
+        user:
+          type: string
+        service:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+        human:
+          type: string
+        gb:
+          type: number
+          format: double
+
+security:
+  - SessionCookie: []

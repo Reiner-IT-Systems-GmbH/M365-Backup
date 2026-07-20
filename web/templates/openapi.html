@@ -1,0 +1,77 @@
+{{define "openapi.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css">
+  <style>
+    .wrap.openapi { max-width: none; padding: 0 0 2rem; }
+    .openapi-bar {
+      display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+      justify-content: space-between; padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .openapi-bar h1 { margin: 0; font-size: 1.25rem; }
+    .swagger-ui { background: transparent; }
+    .swagger-ui .topbar { display: none; }
+    .swagger-ui .info { margin: 1.5rem 1.5rem 0; }
+    .swagger-ui .scheme-container { background: var(--panel); box-shadow: none; }
+    .swagger-ui .opblock-tag, .swagger-ui .opblock .opblock-summary-description,
+    .swagger-ui .info .title, .swagger-ui .info p, .swagger-ui .info li,
+    .swagger-ui .tab li, .swagger-ui label, .swagger-ui table thead tr td,
+    .swagger-ui table thead tr th, .swagger-ui .parameter__name,
+    .swagger-ui .parameter__type, .swagger-ui .response-col_status,
+    .swagger-ui .response-col_description, .swagger-ui .opblock-description-wrapper p,
+    .swagger-ui .opblock-external-docs-wrapper, .swagger-ui .opblock-title_normal,
+    .swagger-ui .model-title, .swagger-ui .model, .swagger-ui .prop-type {
+      color: var(--text) !important;
+    }
+    .swagger-ui .opblock { background: var(--panel); border-color: var(--border); }
+    .swagger-ui .opblock .opblock-section-header { background: rgba(0,0,0,.25); }
+    .swagger-ui select, .swagger-ui input[type=text], .swagger-ui textarea {
+      background: #0b1016; color: var(--text); border-color: var(--border);
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav>
+      <a href="/tenants">Tenants</a>
+      <a href="/settings">Settings</a>
+      <a href="/openapi">API</a>
+      <form method="post" action="/logout" class="inline"><button type="submit">Logout</button></form>
+    </nav>
+  </header>
+  <div class="openapi-bar">
+    <h1>OpenAPI</h1>
+    <p class="muted" style="margin:0">
+      Live spec for this instance ·
+      <a href="/openapi.yaml">Download openapi.yaml</a>
+      · Base <code>{{.BaseURL}}</code>
+    </p>
+  </div>
+  <main class="wrap openapi">
+    <div id="swagger-ui"></div>
+  </main>
+  <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "/openapi.yaml",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      persistAuthorization: true,
+      tryItOutEnabled: true,
+      displayRequestDuration: true,
+      docExpansion: "list",
+      defaultModelsExpandDepth: 1,
+      withCredentials: true
+    });
+  </script>
+</body>
+</html>
+{{end}}

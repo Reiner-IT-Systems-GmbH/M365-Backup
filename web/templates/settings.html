@@ -1,0 +1,141 @@
+{{define "settings.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav>
+      <a href="/tenants">Tenants</a>
+      <a href="/settings">Settings</a>
+      <a href="/openapi">API</a>
+    </nav>
+  </header>
+  <main class="wrap narrow">
+    <h1>Notifications</h1>
+    {{if .Settings}}
+    <ul class="plain">
+      {{range .Settings}}
+      <li><strong>{{.Channel}}</strong> · enabled={{.Enabled}} · on={{.NotifyOn}}</li>
+      {{end}}
+    </ul>
+    {{end}}
+    <form method="post" action="/settings/notifications" class="stack">
+      <label>Channel
+        <select name="channel">
+          <option value="smtp">smtp</option>
+          <option value="webhook">webhook</option>
+          <option value="slack">slack</option>
+          <option value="teams">teams</option>
+          <option value="pushover">pushover</option>
+        </select>
+      </label>
+      <label>Notify on (comma-separated)
+        <input name="notify_on" value="job_error,key_expiry_30d,key_expiry_7d,key_expired,restore_done">
+      </label>
+      <fieldset>
+        <legend>SMTP</legend>
+        <label>Host <input name="smtp_host"></label>
+        <label>Port <input name="smtp_port" value="587"></label>
+        <label>Username <input name="smtp_username"></label>
+        <label>Password <input name="smtp_password" type="password" autocomplete="off"></label>
+        <label>From <input name="smtp_from"></label>
+        <label>To (comma-separated) <input name="smtp_to"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Webhook</legend>
+        <label>URL <input name="webhook_url" placeholder="https://..."></label>
+        <label>Format
+          <select name="format">
+            <option value="json">json</option>
+            <option value="slack">slack</option>
+            <option value="teams">teams</option>
+          </select>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>Pushover</legend>
+        <p class="muted">Keys from <a href="https://pushover.net" target="_blank" rel="noopener">pushover.net</a>. Priority 2 (Emergency) retries until acknowledged.</p>
+        <label>User Key <input name="pushover_user_key" autocomplete="off" placeholder="30-char user/group key"></label>
+        <label>Application Token <input name="pushover_app_token" type="password" autocomplete="off" placeholder="30-char app token"></label>
+        <label>Device (optional) <input name="pushover_device" placeholder="all devices if empty"></label>
+        <label>Message Title <input name="pushover_title" placeholder="M365 Backup" value="M365 Backup"></label>
+        <label>Priority
+          <select name="pushover_priority">
+            <option value="-2">-2 Lowest</option>
+            <option value="-1">-1 Low</option>
+            <option value="0" selected>0 Normal</option>
+            <option value="1">1 High</option>
+            <option value="2">2 Emergency</option>
+          </select>
+        </label>
+        <label>Sound — Alert (errors / warnings / key expiry)
+          <select name="pushover_sound">
+            <option value="pushover">pushover (default)</option>
+            <option value="bike">bike</option>
+            <option value="bugle">bugle</option>
+            <option value="cashregister">cashregister</option>
+            <option value="classical">classical</option>
+            <option value="cosmic">cosmic</option>
+            <option value="falling">falling</option>
+            <option value="gamelan">gamelan</option>
+            <option value="incoming">incoming</option>
+            <option value="intermission">intermission</option>
+            <option value="magic">magic</option>
+            <option value="mechanical">mechanical</option>
+            <option value="pianobar">pianobar</option>
+            <option value="siren">siren</option>
+            <option value="spacealarm">spacealarm</option>
+            <option value="tugboat">tugboat</option>
+            <option value="alien">alien</option>
+            <option value="climb">climb</option>
+            <option value="persistent">persistent</option>
+            <option value="echo">echo</option>
+            <option value="updown">updown</option>
+            <option value="vibrate">vibrate</option>
+            <option value="none">none</option>
+          </select>
+        </label>
+        <label>Sound — OK (success / restore)
+          <select name="pushover_sound_ok">
+            <option value="pushover">pushover (default)</option>
+            <option value="bike">bike</option>
+            <option value="bugle">bugle</option>
+            <option value="cashregister">cashregister</option>
+            <option value="classical">classical</option>
+            <option value="cosmic">cosmic</option>
+            <option value="falling">falling</option>
+            <option value="gamelan">gamelan</option>
+            <option value="incoming">incoming</option>
+            <option value="intermission">intermission</option>
+            <option value="magic" selected>magic</option>
+            <option value="mechanical">mechanical</option>
+            <option value="pianobar">pianobar</option>
+            <option value="siren">siren</option>
+            <option value="spacealarm">spacealarm</option>
+            <option value="tugboat">tugboat</option>
+            <option value="alien">alien</option>
+            <option value="climb">climb</option>
+            <option value="persistent">persistent</option>
+            <option value="echo">echo</option>
+            <option value="updown">updown</option>
+            <option value="vibrate">vibrate</option>
+            <option value="none">none</option>
+          </select>
+        </label>
+        <label>Message TTL (seconds, optional) <input name="pushover_ttl" type="number" min="0" placeholder="0 = no TTL"></label>
+        <label>Emergency retry (seconds, min 30) <input name="pushover_retry" type="number" min="30" value="30"></label>
+        <label>Emergency expire (seconds, max 86400) <input name="pushover_expire" type="number" min="30" max="86400" value="3600"></label>
+      </fieldset>
+      <button type="submit">Save channel</button>
+    </form>
+  </main>
+</body>
+</html>
+{{end}}

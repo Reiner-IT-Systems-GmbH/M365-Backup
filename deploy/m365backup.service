@@ -1,0 +1,28 @@
+[Unit]
+Description=M365 Backup
+After=network.target
+
+[Service]
+Type=simple
+User=m365backup
+Group=m365backup
+WorkingDirectory=/opt/m365backup
+EnvironmentFile=/etc/m365backup/m365backup.env
+# Expect in env file:
+#   DATABASE_PATH=/var/lib/m365backup/m365backup.db
+#   KOPIA_ROOT=/var/lib/m365backup/kopia
+#   STAGING_ROOT=/var/lib/m365backup/staging
+#   MASTER_KEY=...
+#   ADMIN_PASSWORD=...
+#   PUBLIC_BASE_URL=https://backup.example.com
+ExecStart=/opt/m365backup/m365backup
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/m365backup
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

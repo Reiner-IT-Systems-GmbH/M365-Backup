@@ -1,0 +1,57 @@
+{{define "job_detail.html"}}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job {{.Job.ID}} · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav><a href="/tenants/{{.Tenant.ID}}">← {{.Tenant.Name}}</a></nav>
+  </header>
+  <main class="wrap">
+    <h1>Job-Log</h1>
+    <p class="muted" id="job-meta">
+      <span class="badge {{.Job.Status}}">{{.Job.Status}}</span>
+      · {{.Job.Service}} · {{.Job.CreatedAt.Format "2006-01-02 15:04:05"}}
+      · Items {{.Job.ItemsNew}}/{{.Job.ItemsTotal}}
+      · {{.Job.BytesTransferred}} bytes
+      {{if .Job.KopiaSnapshot}}
+      · Snapshot <a href="/tenants/{{.Tenant.ID}}/browser?service={{.Job.Service}}&amp;version={{.Job.KopiaSnapshot}}"><code>{{.Job.KopiaSnapshot}}</code></a>
+      {{end}}
+    </p>
+
+    {{template "job_live_partial.html" .}}
+  </main>
+  <script>
+    function scrollJobLogToBottom() {
+      var el = document.getElementById('job-log-view');
+      if (!el) return;
+      // Force layout, then pin to bottom (newest lines).
+      el.scrollTop = el.scrollHeight + 1e6;
+    }
+    function scheduleLogScroll() {
+      scrollJobLogToBottom();
+      requestAnimationFrame(function () {
+        scrollJobLogToBottom();
+        setTimeout(scrollJobLogToBottom, 50);
+      });
+    }
+    document.addEventListener('DOMContentLoaded', scheduleLogScroll);
+    // afterSettle = DOM fully updated after HTMX swap
+    document.addEventListener('htmx:afterSettle', function (ev) {
+      var t = ev.target;
+      if (!t) return;
+      if (t.id === 'job-live' || (t.querySelector && t.querySelector('#job-log-view'))) {
+        scheduleLogScroll();
+      }
+    });
+  </script>
+</body>
+</html>
+{{end}}

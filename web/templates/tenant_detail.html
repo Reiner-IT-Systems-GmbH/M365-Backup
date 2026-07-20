@@ -1,0 +1,263 @@
+{{define "tenant_detail.html"}}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Tenant.Name}} · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav>
+      <a href="/tenants">Tenants</a>
+      <a href="/settings">Settings</a>
+      <a href="/openapi">API</a>
+      <form method="post" action="/logout" class="inline"><button type="submit">Logout</button></form>
+    </nav>
+  </header>
+  <main class="wrap">
+    <div class="tenant-head">
+      <div>
+        <h1>{{.Tenant.Name}}</h1>
+        <p class="muted"><code>{{.Tenant.AzureTenantID}}</code> · <span class="badge {{.Tenant.Status}}">{{.Tenant.Status}}</span>
+          {{if .Usage}} · Speicher <strong>{{.Usage.TotalHuman}}</strong>{{end}}
+        </p>
+      </div>
+    </div>
+
+    {{if eq .UsageFlash "ok"}}
+    <p class="callout">Speicher gemessen und im Cache gespeichert.</p>
+    {{end}}
+
+    <div class="tenant-quicklinks">
+      <details class="quick-menu">
+        <summary class="btn">Backup starten</summary>
+        <div class="quick-menu-panel">
+          <p class="muted quick-menu-hint">Sofort-Job für einen Dienst:</p>
+          <div class="row gap wrap">
+            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/exchange"><button type="submit">Exchange</button></form>
+            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/onedrive"><button type="submit">OneDrive</button></form>
+            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/teams"><button type="submit">Teams</button></form>
+            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/sharepoint"><button type="submit">SharePoint</button></form>
+            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst"><button type="submit" class="btn secondary">PST-Export</button></form>
+          </div>
+        </div>
+      </details>
+      <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser">Dateibrowser</a>
+      <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/restore">Restore</a>
+      <form method="post" action="/tenants/{{.Tenant.ID}}/usage/refresh" class="inline">
+        <button type="submit" class="btn secondary">Speicher messen</button>
+      </form>
+      {{if ne .Tenant.Status "active"}}
+      <a class="btn" href="/api/consent/start/{{.Tenant.ID}}">Admin consent</a>
+      {{end}}
+    </div>
+
+    <nav class="tenant-tabs" role="tablist" aria-label="Tenant-Bereiche">
+      <a href="#jobs" class="tenant-tab" data-tab="jobs" role="tab">Jobs</a>
+      <a href="#einstellungen" class="tenant-tab" data-tab="einstellungen" role="tab">Einstellungen</a>
+      <a href="#statistiken" class="tenant-tab" data-tab="statistiken" role="tab">Statistiken</a>
+      <a href="#snapshots" class="tenant-tab" data-tab="snapshots" role="tab">Snapshots</a>
+      <a href="#pst-exports" class="tenant-tab" data-tab="pst-exports" role="tab">PST-Exporte</a>
+    </nav>
+
+    <section id="jobs" class="tenant-panel" data-panel="jobs" role="tabpanel">
+      <h2 class="sr-only">Jobs</h2>
+      <div id="jobs-list"
+           hx-get="/tenants/{{.Tenant.ID}}/jobs"
+           hx-trigger="every 5s"
+           hx-swap="innerHTML">
+        {{template "jobs_partial.html" .}}
+      </div>
+    </section>
+
+    <section id="einstellungen" class="tenant-panel" data-panel="einstellungen" role="tabpanel" hidden>
+      <h2>Schedules</h2>
+      <table>
+        <thead><tr><th>Service</th><th>Cron</th><th>Enabled</th><th></th></tr></thead>
+        <tbody>
+        {{range .Schedules}}
+          <tr>
+            <td>{{.Service}}</td>
+            <td colspan="3">
+              <form method="post" action="/tenants/{{$.Tenant.ID}}/schedules/{{.ID}}" class="row gap">
+                <input name="cron_expr" value="{{.CronExpr}}">
+                <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Enabled}}checked{{end}}> enabled</label>
+                <button type="submit">Save</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+
+      <div class="usage-panel" style="margin-top:1.5rem">
+        <h2>Smart Recycle (Retention)</h2>
+        <p class="muted">Wie Synology: alle Versionen in den letzten Stunden behalten, danach nur noch die neueste pro Tag / Woche / Monat / Jahr — jeweils pro Dienst.</p>
+        <form method="post" action="/tenants/{{.Tenant.ID}}/retention" class="retention-form">
+          <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Retention.Enabled}}checked{{end}}> Smart Recycle aktiv</label>
+          <div class="retention-grid">
+            <label>Alle Versionen (Stunden)<input type="number" name="keep_hours" min="0" value="{{.Retention.KeepHours}}"></label>
+            <label>Täglich behalten (Tage)<input type="number" name="keep_daily" min="0" value="{{.Retention.KeepDaily}}"></label>
+            <label>Wöchentlich (Wochen)<input type="number" name="keep_weekly" min="0" value="{{.Retention.KeepWeekly}}"></label>
+            <label>Monatlich (Monate)<input type="number" name="keep_monthly" min="0" value="{{.Retention.KeepMonthly}}"></label>
+            <label>Jährlich (Jahre)<input type="number" name="keep_yearly" min="0" value="{{.Retention.KeepYearly}}"></label>
+            <label>Mindestens behalten<input type="number" name="keep_min" min="1" value="{{.Retention.KeepMin}}"></label>
+            <label>PST-Exports behalten<input type="number" name="pst_keep_runs" min="1" value="{{.Retention.PSTKeepRuns}}"></label>
+          </div>
+          <button type="submit">Retention speichern</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="statistiken" class="tenant-panel" data-panel="statistiken" role="tabpanel" hidden>
+      {{if .Usage}}
+      <div class="usage-panel" style="margin:0">
+        <h2>Speicherplatz</h2>
+        <p class="muted">Cache (stündlich / manuell) · Gesamt <strong>{{printf "%.2f" .Usage.TotalGB}} GB</strong> ({{.Usage.TotalHuman}})
+          {{if .UsageMeasuredAt}}{{if not .UsageMeasuredAt.IsZero}} · Stand {{.UsageMeasuredAt.UTC.Format "2006-01-02 15:04"}} UTC{{end}}{{end}}
+        </p>
+        <div class="usage-grid">
+          <div class="usage-stat"><span class="usage-val">{{printf "%.2f" .Usage.TotalGB}} GB</span><span class="muted">Gesamt</span></div>
+          <div class="usage-stat"><span class="usage-val">{{.Usage.SyncHuman}}</span><span class="muted">Live-Sync</span></div>
+          <div class="usage-stat"><span class="usage-val">{{.Usage.SnapshotsHuman}}</span><span class="muted">Snapshots</span></div>
+          {{if gt .Usage.ExportsBytes 0}}
+          <div class="usage-stat"><span class="usage-val">{{.Usage.ExportsHuman}}</span><span class="muted">PST-Exports</span></div>
+          {{end}}
+          {{if .Usage.LargestService}}
+          <div class="usage-stat highlight"><span class="usage-val">{{.Usage.LargestService}}</span><span class="muted">Meiste Daten (Dienst)</span></div>
+          {{end}}
+          {{if .Usage.LargestUser}}
+          <div class="usage-stat highlight"><span class="usage-val usage-val-sm">{{.Usage.LargestUser}}</span><span class="muted">Meiste Daten (User)</span></div>
+          {{end}}
+        </div>
+
+        <div class="usage-split">
+          <div>
+            <h3>Nach Dienst</h3>
+            <table class="compact">
+              <thead><tr><th>Dienst</th><th>Sync</th><th>Snaps</th><th>Σ</th></tr></thead>
+              <tbody>
+              {{range .Usage.ByService}}
+                {{if gt .TotalBytes 0}}
+                <tr>
+                  <td><span class="badge">{{.Service}}</span></td>
+                  <td>{{.SyncHuman}}</td>
+                  <td>{{.SnapshotHuman}}</td>
+                  <td><strong>{{.TotalHuman}}</strong></td>
+                </tr>
+                {{end}}
+              {{end}}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h3>Top User (Live-Sync)</h3>
+            {{if .Usage.TopUsers}}
+            <table class="compact">
+              <thead><tr><th>User</th><th>Dienst</th><th>Größe</th><th>GB</th></tr></thead>
+              <tbody>
+              {{range .Usage.TopUsers}}
+                <tr>
+                  <td class="user-cell" title="{{.User}}">{{.User}}</td>
+                  <td><span class="badge">{{.Service}}</span></td>
+                  <td>{{.Human}}</td>
+                  <td class="num">{{printf "%.2f" .GB}}</td>
+                </tr>
+              {{end}}
+              </tbody>
+            </table>
+            {{else}}
+            <p class="muted">Noch keine Sync-Daten pro User.</p>
+            {{end}}
+          </div>
+        </div>
+      </div>
+      {{else}}
+      <div class="usage-panel" style="margin:0">
+        <h2>Speicherplatz</h2>
+        <p class="muted">Noch kein Cache. Mit „Speicher messen“ anstoßen oder den stündlichen Cron abwarten.</p>
+      </div>
+      {{end}}
+    </section>
+
+    <section id="snapshots" class="tenant-panel" data-panel="snapshots" role="tabpanel" hidden>
+      <h2 class="sr-only">Snapshots</h2>
+      <p class="muted">Vollständiger Browse mit Dienst- und Versionswahl im <a href="/tenants/{{.Tenant.ID}}/browser">Dateibrowser</a>.</p>
+      {{if .Snapshots}}
+      <ul class="plain">
+        {{range .Snapshots}}
+        <li>
+          <a href="/tenants/{{$.Tenant.ID}}/browser?{{if .Service}}service={{.Service}}&amp;{{end}}version={{.ID}}"><code>{{.ID}}</code></a>
+          {{if .Service}}· <span class="badge">{{.Service}}</span>{{end}}
+          · {{.CreatedAt.Format "2006-01-02 15:04"}} · {{.Files}} files · {{.Bytes}} bytes
+        </li>
+        {{end}}
+      </ul>
+      {{else}}
+      <p class="muted">No snapshots yet.</p>
+      {{end}}
+    </section>
+
+    <section id="pst-exports" class="tenant-panel" data-panel="pst-exports" role="tabpanel" hidden>
+      <h2 class="sr-only">PST-Exporte</h2>
+      <p class="muted">Postfächer aus dem Exchange Live-Sync als ZIP (EML-Ordnerstruktur) nach <code>data/…/exports/pst/</code>. Läuft als Job mit Status im Panel. (Binäres Outlook-.pst folgt später — Open-Source-Writer fehlt.)</p>
+      <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst" class="inline" style="margin-bottom:.75rem">
+        <button type="submit">Export jetzt starten</button>
+      </form>
+      {{if .PSTExports}}
+      <table class="compact">
+        <thead><tr><th>Lauf</th><th>User</th><th>Mails</th><th>Größe</th><th>Dateien</th></tr></thead>
+        <tbody>
+        {{range $ex := .PSTExports}}
+          <tr>
+            <td><code>{{$ex.ID}}</code> · {{$ex.CreatedAt.Format "02.01.2006 15:04"}}</td>
+            <td>{{$ex.Users}}</td>
+            <td>{{$ex.Files}}</td>
+            <td>{{$ex.Human}}</td>
+            <td class="export-zips">
+              {{range $ex.Zips}}
+              <a href="/tenants/{{$.Tenant.ID}}/exports/pst/{{$ex.ID}}/{{.}}">{{.}}</a>
+              {{else}}
+              <span class="muted">—</span>
+              {{end}}
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="muted">Noch keine Exporte.</p>
+      {{end}}
+    </section>
+  </main>
+  <script>
+  (function () {
+    var valid = { jobs: 1, einstellungen: 1, statistiken: 1, snapshots: 1, "pst-exports": 1 };
+    function activate(id) {
+      if (!valid[id]) id = "jobs";
+      document.querySelectorAll(".tenant-tab").forEach(function (el) {
+        var on = el.getAttribute("data-tab") === id;
+        el.classList.toggle("active", on);
+        el.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      document.querySelectorAll(".tenant-panel").forEach(function (el) {
+        var on = el.getAttribute("data-panel") === id;
+        el.hidden = !on;
+      });
+    }
+    function fromHash() {
+      var id = (location.hash || "#jobs").replace(/^#/, "");
+      activate(id);
+    }
+    window.addEventListener("hashchange", fromHash);
+    fromHash();
+  })();
+  </script>
+</body>
+</html>
+{{end}}

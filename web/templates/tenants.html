@@ -1,0 +1,71 @@
+{{define "tenants.html"}}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tenants · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav>
+      <a href="/tenants">Tenants</a>
+      <a href="/settings">Settings</a>
+      <a href="/openapi">API</a>
+      <form method="post" action="/logout" class="inline"><button type="submit">Logout</button></form>
+    </nav>
+  </header>
+  <main class="wrap">
+    <div class="row between">
+      <h1>Tenants</h1>
+      <div class="row gap">
+        <form method="post" action="/tenants/usage/refresh">
+          <button type="submit" class="btn secondary" {{if .UsageRunning}}disabled{{end}}>
+            {{if .UsageRunning}}Speicher wird gemessen…{{else}}Speicher aktualisieren{{end}}
+          </button>
+        </form>
+        <a class="btn" href="/tenants/new">Add tenant</a>
+      </div>
+    </div>
+    {{if eq .UsageFlash "started"}}
+    <p class="callout">Speicher-Messung läuft im Hintergrund (wie <code>du -hs</code>). Seite neu laden, wenn fertig.</p>
+    {{else if eq .UsageFlash "busy"}}
+    <p class="callout">Messung läuft bereits.</p>
+    {{end}}
+    <p class="muted">Speicherwerte kommen aus dem Cache (stündlich + manuell). Die Liste blockiert nicht mehr auf Disk-Walks.</p>
+    {{if .Tenants}}
+    <table>
+      <thead><tr><th>Name</th><th>Azure Tenant</th><th>Status</th><th>Speicher</th><th></th></tr></thead>
+      <tbody>
+      {{range .Tenants}}
+        <tr>
+          <td><a href="/tenants/{{.Tenant.ID}}">{{.Tenant.Name}}</a></td>
+          <td><code>{{.Tenant.AzureTenantID}}</code></td>
+          <td><span class="badge {{.Tenant.Status}}">{{.Tenant.Status}}</span></td>
+          <td>
+            {{if .Usage}}
+            <strong>{{.Usage.TotalHuman}}</strong>
+            <span class="muted" style="font-size:.8rem;display:block">
+              Snap {{.Usage.SnapshotsHuman}} · Sync {{.Usage.SyncHuman}}
+              {{if not .MeasuredAt.IsZero}} · Stand {{.MeasuredAt.UTC.Format "2006-01-02 15:04"}} UTC{{end}}
+            </span>
+            {{else}}
+            <span class="muted">noch nicht gemessen</span>
+            {{end}}
+          </td>
+          <td><a href="/tenants/{{.Tenant.ID}}">Open</a></td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="muted">No tenants yet. Create one and complete admin consent.</p>
+    {{end}}
+  </main>
+</body>
+</html>
+{{end}}

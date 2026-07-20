@@ -1,0 +1,45 @@
+# Secrets and local env — NEVER commit these
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
+# Runtime data
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+kopia/
+
+# Build artifacts
+/bin/
+/dist/
+m365backup
+*.exe
+*.test
+coverage.out
+coverage.html
+
+# Staging / temp
+/tmp/
+.staging/
+
+# IDE / OS / Cursor
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/

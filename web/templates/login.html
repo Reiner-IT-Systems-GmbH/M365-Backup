@@ -1,0 +1,22 @@
+{{define "login.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-page">
+  <form class="login-card" method="post" action="/login">
+    <img class="login-logo" src="/static/logo.png" alt="M365 Backup">
+    <p class="muted">Admin sign-in</p>
+    <label>Password
+      <input type="password" name="password" required autofocus autocomplete="current-password">
+    </label>
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>
+{{end}}

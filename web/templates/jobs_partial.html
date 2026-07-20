@@ -1,0 +1,70 @@
+{{define "jobs_partial.html"}}
+<div class="jobs-wrap">
+  {{if .JobCounts}}
+  <div class="jobs-stats">
+    {{if gt .JobCounts.Running 0}}
+    <span class="jobs-stat"><span class="badge running">{{.JobCounts.Running}}</span> running</span>
+    {{end}}
+    {{if gt .JobCounts.Queued 0}}
+    <span class="jobs-stat"><span class="badge">{{.JobCounts.Queued}}</span> queued</span>
+    {{end}}
+    <span class="jobs-stat"><span class="badge success">{{.JobCounts.Success}}</span> ok</span>
+    <span class="jobs-stat"><span class="badge warning">{{.JobCounts.Warning}}</span> warn</span>
+    <span class="jobs-stat"><span class="badge error">{{.JobCounts.Error}}</span> error</span>
+    {{if gt .JobCounts.Cancelled 0}}
+    <span class="jobs-stat"><span class="badge cancelled">{{.JobCounts.Cancelled}}</span> cancelled</span>
+    {{end}}
+  </div>
+  {{end}}
+  <div class="jobs-list">
+  {{range .Jobs}}
+    <article class="job-card {{.Status}}">
+      <div class="job-card-main">
+        <div class="job-card-top">
+          <span class="badge {{.Status}}">{{.Status}}</span>
+          <span class="job-svc">{{.Service}}</span>
+          <span class="muted job-when">{{.CreatedAt.Format "02.01.2006 15:04"}}</span>
+        </div>
+        {{if or (eq .Status "running") (eq .Status "queued")}}
+        <div class="progress-mini {{.Status}}">
+          <div class="progress-track">
+            <div class="progress-fill" style="width: {{.ProgressPct}}%"></div>
+          </div>
+          <div class="progress-mini-meta">
+            <span class="progress-pct">{{.ProgressPct}}%</span>
+            <span class="progress-now" title="{{.ProgressMessage}}">{{if .ProgressMessage}}{{.ProgressMessage}}{{else}}…{{end}}</span>
+          </div>
+        </div>
+        {{else}}
+        <p class="job-summary" title="{{.ErrorMessage}}">
+          {{if .ErrorMessage}}{{.ErrorMessage}}{{else}}—{{end}}
+          {{if .ItemsNew}} · {{.ItemsNew}} items{{end}}
+        </p>
+        {{end}}
+      </div>
+      <div class="job-card-actions">
+        {{if .KopiaSnapshot}}
+          {{if eq .Service "pst"}}
+        <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}#pst-exports" title="{{.KopiaSnapshot}}">Export</a>
+          {{else}}
+        <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}/browser?service={{.Service}}&amp;version={{.KopiaSnapshot}}" title="{{.KopiaSnapshot}}">Browse</a>
+          {{end}}
+        {{end}}
+        <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}/jobs/{{.ID}}">Log</a>
+        {{if or (eq .Status "running") (eq .Status "queued")}}
+        <form class="inline" method="post" action="/tenants/{{$.TenantID}}/jobs/{{.ID}}/cancel"
+              hx-post="/tenants/{{$.TenantID}}/jobs/{{.ID}}/cancel"
+              hx-target="#jobs-list"
+              hx-swap="innerHTML"
+              onsubmit="return confirm('Backup wirklich stoppen?');">
+          <button type="submit" class="btn-stop">Stop</button>
+        </form>
+        {{end}}
+      </div>
+    </article>
+  {{else}}
+    <p class="muted">Noch keine Jobs.</p>
+  {{end}}
+  </div>
+</div>
+{{end}}
