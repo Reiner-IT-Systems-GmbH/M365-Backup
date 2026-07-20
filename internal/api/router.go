@@ -71,6 +71,8 @@ func (s *Server) Router() http.Handler {
 	r.Post("/tenants/{id}/backup/{service}", s.handleTriggerBackup)
 	r.Post("/tenants/{id}/schedules/{sid}", s.handleUpdateSchedule)
 	r.Post("/tenants/{id}/retention", s.handleUpdateRetention)
+	r.Get("/tenants/{id}/recovery", s.handleRecoveryForm)
+	r.Post("/tenants/{id}/recovery", s.handleRecoveryExport)
 	r.Get("/tenants/{id}/exports/pst/{runID}/{file}", s.handlePSTExportDownload)
 	r.Get("/tenants/{id}/restore", s.handleRestoreForm)
 	r.Post("/tenants/{id}/restore", s.handleRestore)
@@ -236,7 +238,7 @@ func (s *Server) handleTenantCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.Sched.Reload(r.Context())
-	http.Redirect(w, r, "/tenants/"+t.ID, http.StatusFound)
+	http.Redirect(w, r, "/tenants/"+t.ID+"/recovery?new=1", http.StatusFound)
 }
 
 func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +262,106 @@ func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 		"UsageFlash": r.URL.Query().Get("usage"),
 		"PSTExports": pstExports, "Retention": retention,
 	})
+}
+
+func (s *Server) handleRecoveryForm(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	t, err := s.DB.GetTenant(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	_ = s.Templates.ExecuteTemplate(w, "tenant_recovery.html", map[string]any{
+		"Tenant": t,
+		"IsNew":  r.URL.Query().Get("new") == "1",
+		"RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
+	})
+}
+
+func (s *Server) handleRecoveryExport(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	t, err := s.DB.GetTenant(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	_ = r.ParseForm()
+	ip := clientIP(r)
+	if !s.Sessions.allowLogin(ip) {
+		http.Error(w, "too many attempts", http.StatusTooManyRequests)
+		return
+	}
+	if !s.Sessions.CheckPassword(r.FormValue("admin_password")) {
+		s.Sessions.recordLoginAttempt(ip)
+		_ = s.Templates.ExecuteTemplate(w, "tenant_recovery.html", map[string]any{
+			"Tenant": t, "RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
+			"Error": "Admin-Passwort falsch.",
+		})
+		return
+	}
+	_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
+	if err != nil {
+		http.Error(w, "decrypt failed", 500)
+		return
+	}
+	repoPath := storage.RepoDataDir(t.KopiaRepoPath)
+	action := r.FormValue("action")
+	if action == "download" {
+		body := formatRecoverySheet(t, repoPath, kopiaPass)
+		name := "m365backup-recovery-" + sanitizeFilePart(t.Name) + ".txt"
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+		_, _ = w.Write([]byte(body))
+		return
+	}
+	_ = s.Templates.ExecuteTemplate(w, "tenant_recovery.html", map[string]any{
+		"Tenant": t, "RepoPath": repoPath,
+		"KopiaPassword": kopiaPass,
+		"Revealed":      true,
+	})
+}
+
+func formatRecoverySheet(t *db.Tenant, repoPath, kopiaPass string) string {
+	var b strings.Builder
+	b.WriteString("M365 Backup — offline Kopia recovery\n")
+	b.WriteString("=====================================\n\n")
+	b.WriteString("KEEP THIS FILE OFFLINE. Anyone with repo path + this password can decrypt all snapshots.\n\n")
+	b.WriteString("Tenant name:     " + t.Name + "\n")
+	b.WriteString("Tenant ID:       " + t.ID + "\n")
+	b.WriteString("Azure tenant:    " + t.AzureTenantID + "\n")
+	b.WriteString("Kopia repo path: " + repoPath + "\n")
+	b.WriteString("Repo password:   " + kopiaPass + "\n\n")
+	b.WriteString("Restore with upstream kopia CLI (no M365 Backup app / DB required):\n\n")
+	b.WriteString("  export KOPIA_PASSWORD='…password above…'\n")
+	b.WriteString("  kopia repository connect filesystem --path '" + repoPath + "' --readonly\n")
+	b.WriteString("  kopia snapshot list --all\n")
+	b.WriteString("  kopia snapshot restore <snapshot-id> /restore/target\n\n")
+	b.WriteString("This is NOT the MASTER_KEY. MASTER_KEY only encrypts secrets in the app database.\n")
+	return b.String()
+}
+
+func sanitizeFilePart(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "tenant"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteByte('-')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return "tenant"
+	}
+	if len(out) > 40 {
+		out = out[:40]
+	}
+	return out
 }
 
 func (s *Server) handleJobsPartial(w http.ResponseWriter, r *http.Request) {

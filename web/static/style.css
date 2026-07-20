@@ -64,6 +64,29 @@ nav { display: flex; gap: 1rem; align-items: center; }
   background: #0b1016;
   border: 1px solid var(--border);
 }
+.stack-form { display: grid; gap: .85rem; max-width: 28rem; }
+.stack-form label { display: grid; gap: .35rem; font-size: .9rem; color: var(--muted); }
+.recovery-secret {
+  display: inline-block;
+  padding: .45rem .65rem;
+  background: #0b1016;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: .95rem;
+  word-break: break-all;
+  user-select: all;
+}
+.recovery-cli {
+  margin: 1rem 0 0;
+  padding: .85rem 1rem;
+  background: #070b10;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: .8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 .table-scroll { overflow-x: auto; margin: .75rem 0; }
 .perm-table { font-size: .9rem; }
 .perm-table code { font-size: .8rem; }

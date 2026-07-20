@@ -58,10 +58,7 @@ func (s *SessionStore) recordLoginAttempt(ip string) {
 }
 
 func (s *SessionStore) Login(password string) (token string, ok bool) {
-	// Hash both sides so ConstantTimeCompare always sees equal-length digests
-	// (avoids length-leaking early exit on mismatched password lengths).
-	got := sha256.Sum256([]byte(password))
-	if subtle.ConstantTimeCompare(got[:], s.passHash[:]) != 1 {
+	if !s.CheckPassword(password) {
 		return "", false
 	}
 	token = uuid.NewString()
@@ -69,6 +66,12 @@ func (s *SessionStore) Login(password string) (token string, ok bool) {
 	s.sessions[token] = time.Now().Add(s.ttl)
 	s.mu.Unlock()
 	return token, true
+}
+
+// CheckPassword verifies the admin password without creating a session.
+func (s *SessionStore) CheckPassword(password string) bool {
+	got := sha256.Sum256([]byte(password))
+	return subtle.ConstantTimeCompare(got[:], s.passHash[:]) == 1
 }
 
 func (s *SessionStore) Valid(token string) bool {

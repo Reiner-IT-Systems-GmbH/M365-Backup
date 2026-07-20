@@ -1,0 +1,85 @@
+{{define "tenant_recovery.html"}}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kopia-Recovery · {{.Tenant.Name}}</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav>
+      <a href="/tenants">Tenants</a>
+      <a href="/tenants/{{.Tenant.ID}}">{{.Tenant.Name}}</a>
+    </nav>
+  </header>
+  <main class="wrap">
+    <h1>Offline-Recovery (Kopia)</h1>
+    <p class="muted">Tenant <strong>{{.Tenant.Name}}</strong> · Repo <code>{{.RepoPath}}</code></p>
+
+    {{if .IsNew}}
+    <p class="callout">
+      <strong>Jetzt speichern.</strong> Das Kopia-Repo-Passwort wird nur verschlüsselt in der DB gehalten.
+      Ohne Offline-Kopie kannst du bei Verlust von App/DB die Snapshots <em>nicht</em> mit der Kopia-CLI wiederherstellen —
+      der <code>MASTER_KEY</code> allein öffnet das Repo nicht.
+    </p>
+    {{else}}
+    <p class="callout">
+      Für Disaster Recovery brauchst du <strong>Repo-Pfad + dieses Passwort</strong> (nicht den <code>MASTER_KEY</code>).
+      Speichere die Datei offline (Passwort-Safe / Papier / Offline-Vault).
+    </p>
+    {{end}}
+
+    {{if .Error}}
+    <p class="err">{{.Error}}</p>
+    {{end}}
+
+    {{if .Revealed}}
+    <div class="form-panel">
+      <h2>Repo-Passwort</h2>
+      <p><code class="recovery-secret" id="kopia-pass">{{.KopiaPassword}}</code>
+        <button type="button" class="btn-sm" id="copy-pass">Kopieren</button>
+      </p>
+      <pre class="recovery-cli">export KOPIA_PASSWORD='{{.KopiaPassword}}'
+kopia repository connect filesystem --path '{{.RepoPath}}' --readonly
+kopia snapshot list --all
+kopia snapshot restore [snapshot-id] /restore/target</pre>
+      <p class="muted">Danach Seite schließen — das Passwort bleibt nicht dauerhaft im Browser-History der URL.</p>
+    </div>
+    {{end}}
+
+    <div class="form-panel">
+      <h2>Export (Admin-Passwort erforderlich)</h2>
+      <form method="post" action="/tenants/{{.Tenant.ID}}/recovery" class="stack-form">
+        <label>Admin-Passwort
+          <input type="password" name="admin_password" required autocomplete="current-password" autofocus>
+        </label>
+        <div class="row gap wrap">
+          <button type="submit" name="action" value="reveal">Anzeigen</button>
+          <button type="submit" name="action" value="download" class="btn secondary">Recovery-Datei herunterladen (.txt)</button>
+        </div>
+      </form>
+    </div>
+
+    <p><a href="/tenants/{{.Tenant.ID}}">← Zurück zum Tenant</a></p>
+  </main>
+  <script>
+    const btn = document.getElementById('copy-pass');
+    const el = document.getElementById('kopia-pass');
+    if (btn && el) {
+      btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(el.textContent);
+          btn.textContent = 'Kopiert';
+        } catch (_) {
+          btn.textContent = 'Fehler';
+        }
+      });
+    }
+  </script>
+</body>
+</html>
+{{end}}

@@ -112,6 +112,12 @@
           <button type="submit">Retention speichern</button>
         </form>
       </div>
+
+      <div class="usage-panel" style="margin-top:1.5rem">
+        <h2>Offline-Recovery (Kopia)</h2>
+        <p class="muted">Repo-Passwort offline speichern. Ohne diese Kopie reicht der <code>MASTER_KEY</code> <strong>nicht</strong>, um Snapshots mit der Kopia-CLI zu öffnen, wenn die App/DB weg ist.</p>
+        <p><a class="btn secondary" href="/tenants/{{.Tenant.ID}}/recovery">Recovery-Passwort exportieren…</a></p>
+      </div>
     </section>
 
     <section id="statistiken" class="tenant-panel" data-panel="statistiken" role="tabpanel" hidden>

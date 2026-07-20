@@ -82,14 +82,7 @@ flowchart TB
 
 **Smart Recycle:** after each backup, Synology-style retention runs **per service** (hours/daily/weekly/monthly/yearly + keep-min). Expired Kopia snapshot manifests are deleted, then full Kopia maintenance/GC reclaims blob space.
 
-**Disaster recovery without this app:** keep each tenant’s repository password offline. Then:
-
-```bash
-kopia repository connect filesystem --path /path/to/{tenant-id}/repo
-# password prompt → same password stored encrypted in the DB
-kopia snapshot list
-kopia snapshot restore <id> /restore/target
-```
+**Disaster recovery without this app:** NOT TESTED YET! keep each tenant’s repository password offline. Full CLI steps: [Restore with Kopia CLI](#restore-with-kopia-cli).
 
 ## Current status (Kopia & services)
 
@@ -104,9 +97,9 @@ Honest snapshot of what works today vs. what is still thin. Treat this as early/
 | Snapshots | Created after each successful backup job; tagged with service (`m365-service` / username = service) |
 | Retention | **Smart Recycle** (Synology-style) per service: keep hours → daily → weekly → monthly → yearly + keep-min; then Kopia maintenance/GC |
 | Defaults | 24h / 7d / 4w / 6m / 2y / min 3 snapshots; last 5 PST export runs |
-| Offline restore | Works with stock `kopia` CLI if you have path + repo password (password also encrypted in DB under `MASTER_KEY`) |
+| Offline restore | Works with stock `kopia` CLI if you have **repo path + tenant repo password** (export once via UI; not the `MASTER_KEY`) |
 | Backends | **Filesystem only** today — no S3 / RustFS / offsite replication yet |
-| UI password export | Repo password is not yet a one-click offline export at onboarding (roadmap) |
+| UI password export | After tenant create + Tenant → Einstellungen → **Offline-Recovery** (re-enter admin password → reveal / `.txt` download) |
 
 **Disk note:** Exchange and OneDrive keep a full **live sync tree** *and* Kopia snapshots of that tree. Plan capacity for both.
 
@@ -128,6 +121,7 @@ Default schedules (after consent): Exchange hourly · OneDrive nightly · Teams 
 - Tenant page: quick actions (start backup) + tabs (Jobs, Settings, Statistics, Snapshots, PST exports)
 - Job runner with live progress, cancel, logs
 - Dateibrowser (service + snapshot version), ZIP restore, OD/SP Graph restore
+- Offline Kopia recovery export (repo password reveal / `.txt` download)
 - Notifications: SMTP, Pushover, Slack/Teams/generic webhooks
 - Client-secret expiry alerts (warn only — no auto-rotation)
 - Disk usage cache (`tenant_usage`, hourly + manual refresh)
@@ -322,9 +316,64 @@ GET  /api/tenants?usage=1             # list with cached usage
 | Teams | `messages.json` + `messages.html` (staging) → Kopia | ZIP archive only |
 | PST | EML trees as ZIP under `exports/pst/` (no Kopia snap) | Download from UI — not binary `.pst` |
 
-**Disaster recovery:** export each tenant’s repository password offline at onboarding (it is also encrypted in the DB under `MASTER_KEY`). Snapshots live in `{KOPIA_ROOT}/{tenant-id}/repo/` as a standard Kopia repository — restorable with this app **or** the upstream `kopia` CLI using path + password alone.
+Via the admin UI: open the tenant → **Snapshots** → browse / ZIP download; OneDrive and SharePoint can also push back into Graph (`M365Backup-Restore/`).
 
 For maturity and limitations per service, see [Current status](#current-status-kopia--services).
+
+### Restore with Kopia CLI
+
+NOT TESTED YET!
+
+Yes — every tenant repo is a **standard [Kopia](https://kopia.io/) filesystem repository**. If this app, the DB, or the control plane is gone, you only need:
+
+1. The on-disk repo: `{KOPIA_ROOT}/{tenant-id}/repo/`
+2. That tenant’s **repository password** — **not** `MASTER_KEY`
+
+**Critical:** the repo password is generated at tenant create and stored encrypted in the DB under `MASTER_KEY`. If you never export it, losing the DB (or `MASTER_KEY`) means you **cannot** open the Kopia repo. Export it once and keep it offline.
+
+In the admin UI: after creating a tenant you are redirected to **Offline-Recovery**; later via Tenant → **Einstellungen** → *Recovery-Passwort exportieren*. Re-enter the admin password, then **Anzeigen** or download the `.txt` sheet.
+
+Install the upstream CLI ([kopia.io/docs/installation](https://kopia.io/docs/installation/)), then:
+
+```bash
+# 1) Connect (path = .../repo, not the parent tenant folder)
+export KOPIA_PASSWORD='<TENANT_REPO_PASSWORD>'   # or let the CLI prompt
+kopia repository connect filesystem \
+  --path /var/lib/m365backup/kopia/<tenant-id>/repo \
+  --readonly
+
+# 2) List snapshots (host is always m365backup; username = service)
+kopia snapshot list --all
+# Optional filter, e.g. Exchange only:
+kopia snapshot list --all --tags m365-service:exchange
+
+# 3a) Restore a whole snapshot to a folder
+kopia snapshot restore <snapshot-id> /restore/target
+
+# 3b) Or mount and copy selectively (FUSE / Windows mount)
+kopia mount <snapshot-id> /mnt/m365-restore
+```
+
+**What you get after restore**
+
+| Snapshot service (`username` / tag) | Typical tree |
+|-------------------------------------|--------------|
+| `exchange` | Mailboxes → folders → `.eml` files |
+| `onedrive` | Users → OneDrive folder tree |
+| `sharepoint` | Sites / drive files (+ `site.json`) |
+| `teams` | Teams / channels → `messages.json` / `messages.html` |
+
+PST export runs are **not** in Kopia (they live under `{KOPIA_ROOT}/{tenant-id}/exports/`).
+
+**Notes**
+
+- You do **not** need `MASTER_KEY`, MySQL/SQLite, or this binary for a bare-metal restore — only `repo/` + password.
+- `kopia.config` / `.kopia-cache/` next to `repo/` are optional local connection caches; the encrypted store is `repo/`.
+- Snapshots are tagged `m365-service=<exchange|onedrive|teams|sharepoint>` and sourced as `m365backup@<service>:<abs-path>`.
+- Prefer `--readonly` on connect if you only want to restore and avoid accidental writes/GC.
+- After a successful DR drill, `kopia repository disconnect` (or remove the local config) so the next connect is explicit.
+
+**Not the same as `MASTER_KEY`:** `MASTER_KEY` only unlocks secrets *inside the app DB*. The Kopia CLI needs the per-tenant **repo password** from the recovery export.
 
 ## Notifications
 
@@ -360,7 +409,6 @@ deploy/              systemd unit
 
 ## Roadmap
 
-- Offline/UI export of tenant Kopia repo passwords at onboarding
 - Offsite replication, RustFS/S3 Kopia backends
 - Teams attachments + chats; deeper SharePoint sync (delta / recursion)
 - Binary Outlook `.pst` writer (when a viable OSS path exists)
