@@ -1,11 +1,49 @@
 {{define "pst_exports_partial.html"}}
+<form method="post" action="/tenants/{{.TenantID}}/backup/pst" class="form-panel stack-form pst-export-form" id="pst-export-form">
+  <fieldset>
+    <legend>{{.L.T "pst.scope_legend"}}</legend>
+    <label class="radio-row"><input type="radio" name="scope" value="all" checked> {{.L.T "pst.scope_all"}}</label>
+    <label class="radio-row"><input type="radio" name="scope" value="mailbox" {{if not .Mailboxes}}disabled{{end}}> {{.L.T "pst.scope_mailbox"}}</label>
+    <label class="radio-row"><input type="radio" name="scope" value="folder" {{if not .Mailboxes}}disabled{{end}}> {{.L.T "pst.scope_folder"}}</label>
+  </fieldset>
+  {{if .Mailboxes}}
+  <label class="pst-mailbox-field">
+    {{.L.T "pst.mailbox"}}
+    <select name="mailbox" id="pst-mailbox-select"
+            hx-get="/tenants/{{.TenantID}}/pst-folders"
+            hx-trigger="change"
+            hx-target="#pst-folder-select"
+            hx-include="this"
+            hx-swap="innerHTML">
+      <option value="">{{.L.T "pst.mailbox_pick"}}</option>
+      {{range .Mailboxes}}
+      <option value="{{.}}">{{.}}</option>
+      {{end}}
+    </select>
+  </label>
+  <label class="pst-folder-field">
+    {{.L.T "pst.folder"}}
+    <select name="folder" id="pst-folder-select">
+      <option value="">{{.L.T "pst.folder_pick"}}</option>
+    </select>
+  </label>
+  {{else}}
+  <p class="muted">{{.L.T "pst.no_mailboxes"}}</p>
+  {{end}}
+  <button type="submit">{{.L.T "tenant.pst_start"}}</button>
+</form>
+
 {{if .PSTExports}}
 <table class="compact">
-  <thead><tr><th>{{.L.T "pst.col.run"}}</th><th>{{.L.T "pst.col.user"}}</th><th>{{.L.T "pst.col.mails"}}</th><th>{{.L.T "pst.col.size"}}</th><th>{{.L.T "pst.col.files"}}</th></tr></thead>
+  <thead><tr><th>{{.L.T "pst.col.run"}}</th><th>{{.L.T "pst.col.scope"}}</th><th>{{.L.T "pst.col.user"}}</th><th>{{.L.T "pst.col.mails"}}</th><th>{{.L.T "pst.col.size"}}</th><th>{{.L.T "pst.col.files"}}</th></tr></thead>
   <tbody>
   {{range $ex := .PSTExports}}
     <tr>
       <td><code>{{$ex.ID}}</code> · {{fmtTime $ex.CreatedAt "02.01.2006 15:04"}}</td>
+      <td>
+        {{if eq $ex.Scope "mailbox"}}{{$.L.T "pst.scope_mailbox"}}{{else if eq $ex.Scope "folder"}}{{$.L.T "pst.scope_folder"}}{{else}}{{$.L.T "pst.scope_all"}}{{end}}
+        {{if $ex.Mailbox}}<div class="muted small">{{$ex.Mailbox}}{{if $ex.Folder}} / {{$ex.Folder}}{{end}}</div>{{end}}
+      </td>
       <td>{{$ex.Users}}</td>
       <td>{{$ex.Files}}</td>
       <td>{{$ex.Human}}</td>

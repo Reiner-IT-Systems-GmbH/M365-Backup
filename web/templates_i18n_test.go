@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"html/template"
 	"testing"
 	"time"
@@ -13,6 +14,13 @@ import (
 func TestTemplatesParseAndRender(t *testing.T) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"fmtTime": func(tm time.Time, layout string) string { return tm.Format(layout) },
+		"toJSON": func(v any) (template.JS, error) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return "", err
+			}
+			return template.JS(b), nil
+		},
 	}).ParseFS(web.Templates, "templates/*.html")
 	if err != nil {
 		t.Fatal(err)
@@ -22,6 +30,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		"restore.html", "job_detail.html", "browser.html", "tenant_recovery.html",
 		"snapshot_browse.html", "tenant_detail.html", "jobs_partial.html",
 		"job_live_partial.html", "snapshots_partial.html", "pst_exports_partial.html",
+		"pst_folders_partial.html",
 	}
 	type tenant struct{ ID, Name, AzureTenantID, Status string }
 	type job struct {

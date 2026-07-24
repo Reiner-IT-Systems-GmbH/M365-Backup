@@ -21,4 +21,14 @@ This product bundles or depends on third-party software:
     Copyright Rob Figueiredo
     Licensed under the MIT License
 
+  - Chart.js (https://www.chartjs.org/)
+    Copyright Chart.js Contributors
+    Licensed under the MIT License
+    Bundled as web/static/chart.umd.min.js
+
+  - htmx (https://htmx.org/)
+    Copyright Big Sky Software
+    Licensed under the BSD Zero Clause License
+    Bundled as web/static/htmx.min.js
+
 See go.mod / go.sum for the full dependency list and their respective licenses.

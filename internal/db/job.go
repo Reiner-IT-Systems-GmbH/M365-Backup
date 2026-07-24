@@ -35,6 +35,7 @@ type Job struct {
 	KopiaSnapshot    string
 	ProgressPct      int
 	ProgressMessage  string
+	Params           string // optional JSON (e.g. PST export scope)
 	CreatedAt        time.Time
 }
 
@@ -142,11 +143,11 @@ func (d *DB) CreateJob(ctx context.Context, j *Job) error {
 	j.CreatedAt = time.Now().UTC()
 	_, err := d.SQL.ExecContext(ctx, `
 		INSERT INTO jobs (id, tenant_id, schedule_id, service, job_type, status, started_at, finished_at,
-			items_new, items_total, bytes_transferred, error_message, kopia_snapshot, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			items_new, items_total, bytes_transferred, error_message, kopia_snapshot, params, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		j.ID, j.TenantID, NullString(j.ScheduleID), j.Service, j.JobType, j.Status,
 		NullTime(j.StartedAt), NullTime(j.FinishedAt), j.ItemsNew, j.ItemsTotal, j.BytesTransferred,
-		NullString(j.ErrorMessage), NullString(j.KopiaSnapshot), j.CreatedAt,
+		NullString(j.ErrorMessage), NullString(j.KopiaSnapshot), j.Params, j.CreatedAt,
 	)
 	return err
 }
@@ -218,7 +219,7 @@ func (d *DB) ListJobs(ctx context.Context, tenantID string, limit int) ([]Job, e
 	rows, err := d.SQL.QueryContext(ctx, `
 		SELECT id, tenant_id, COALESCE(schedule_id,''), service, job_type, status, started_at, finished_at,
 			items_new, items_total, bytes_transferred, COALESCE(error_message,''), COALESCE(kopia_snapshot,''),
-			progress_pct, COALESCE(progress_message,''), created_at
+			progress_pct, COALESCE(progress_message,''), COALESCE(params,''), created_at
 		FROM jobs WHERE tenant_id=? ORDER BY created_at DESC LIMIT ?`, tenantID, limit)
 	if err != nil {
 		return nil, err
@@ -231,13 +232,13 @@ func (d *DB) GetJob(ctx context.Context, id string) (*Job, error) {
 	row := d.SQL.QueryRowContext(ctx, `
 		SELECT id, tenant_id, COALESCE(schedule_id,''), service, job_type, status, started_at, finished_at,
 			items_new, items_total, bytes_transferred, COALESCE(error_message,''), COALESCE(kopia_snapshot,''),
-			progress_pct, COALESCE(progress_message,''), created_at
+			progress_pct, COALESCE(progress_message,''), COALESCE(params,''), created_at
 		FROM jobs WHERE id=?`, id)
 	var j Job
 	var started, finished sql.NullTime
 	if err := row.Scan(&j.ID, &j.TenantID, &j.ScheduleID, &j.Service, &j.JobType, &j.Status, &started, &finished,
 		&j.ItemsNew, &j.ItemsTotal, &j.BytesTransferred, &j.ErrorMessage, &j.KopiaSnapshot,
-		&j.ProgressPct, &j.ProgressMessage, &j.CreatedAt); err != nil {
+		&j.ProgressPct, &j.ProgressMessage, &j.Params, &j.CreatedAt); err != nil {
 		return nil, err
 	}
 	if started.Valid {
@@ -256,7 +257,7 @@ func scanJobs(rows *sql.Rows) ([]Job, error) {
 		var started, finished sql.NullTime
 		if err := rows.Scan(&j.ID, &j.TenantID, &j.ScheduleID, &j.Service, &j.JobType, &j.Status, &started, &finished,
 			&j.ItemsNew, &j.ItemsTotal, &j.BytesTransferred, &j.ErrorMessage, &j.KopiaSnapshot,
-			&j.ProgressPct, &j.ProgressMessage, &j.CreatedAt); err != nil {
+			&j.ProgressPct, &j.ProgressMessage, &j.Params, &j.CreatedAt); err != nil {
 			return nil, err
 		}
 		if started.Valid {

@@ -1,0 +1,6 @@
+{{define "pst_folders_partial.html"}}
+<option value="">{{.L.T "pst.folder_pick"}}</option>
+{{range .Folders}}
+<option value="{{.}}">{{.}}</option>
+{{end}}
+{{end}}

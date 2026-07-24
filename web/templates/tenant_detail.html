@@ -8,6 +8,7 @@
   <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/chart.umd.min.js" defer></script>
 </head>
 <body>
   <header class="top">
@@ -130,12 +131,37 @@
 
     <section id="statistiken" class="tenant-panel" data-panel="statistiken" role="tabpanel" hidden>
       {{if .Usage}}
-      <div class="usage-panel" style="margin:0">
+      <div class="usage-panel" style="margin:0"
+           id="usage-charts-root"
+           data-label-sync="{{.L.T "tenant.chart.sync"}}"
+           data-label-snapshots="{{.L.T "tenant.chart.snapshots"}}"
+           data-label-exports="{{.L.T "tenant.chart.exports"}}"
+           data-label-other="{{.L.T "tenant.chart.other"}}"
+           data-label-snaps-logical="{{.L.T "tenant.chart.snaps_logical"}}">
         <h2>{{.L.T "tenant.usage_title"}}</h2>
         <p class="muted">{{.L.T "tenant.usage_cache"}} <strong>{{printf "%.2f" .Usage.TotalGB}} GB</strong> ({{.Usage.TotalHuman}})
           {{if .UsageMeasuredAt}}{{if not .UsageMeasuredAt.IsZero}} · {{.L.T "tenants.usage_stand"}} {{fmtTime .UsageMeasuredAt "02.01.2006 15:04"}}{{end}}{{end}}
         </p>
         <p class="callout usage-explain">{{.L.T "tenant.usage_explain"}}</p>
+
+        <div class="usage-charts">
+          <div class="usage-chart-card">
+            <h3>{{.L.T "tenant.chart.composition"}}</h3>
+            <canvas id="chart-composition" aria-label="{{.L.T "tenant.chart.composition"}}"></canvas>
+          </div>
+          <div class="usage-chart-card">
+            <h3>{{.L.T "tenant.chart.by_service"}}</h3>
+            <canvas id="chart-by-service" aria-label="{{.L.T "tenant.chart.by_service"}}"></canvas>
+          </div>
+          {{if .Usage.TopUsers}}
+          <div class="usage-chart-card usage-chart-wide">
+            <h3>{{.L.T "tenant.chart.top_users"}}</h3>
+            <canvas id="chart-top-users" aria-label="{{.L.T "tenant.chart.top_users"}}"></canvas>
+          </div>
+          {{end}}
+        </div>
+        <script type="application/json" id="usage-chart-data">{{toJSON .Usage}}</script>
+
         <div class="usage-grid">
           <div class="usage-stat"><span class="usage-val">{{printf "%.2f" .Usage.TotalGB}} GB</span><span class="muted">{{.L.T "tenant.usage_total_disk"}}</span></div>
           <div class="usage-stat"><span class="usage-val">{{.Usage.SyncHuman}}</span><span class="muted">{{.L.T "tenant.usage_live_sync"}}</span></div>
@@ -215,9 +241,6 @@
     <section id="pst-exports" class="tenant-panel" data-panel="pst-exports" role="tabpanel" hidden>
       <h2 class="sr-only">{{.L.T "tenant.tab.pst"}}</h2>
       <p class="muted">{{.L.T "tenant.pst_hint"}}</p>
-      <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst" class="inline" style="margin-bottom:.75rem">
-        <button type="submit">{{.L.T "tenant.pst_start"}}</button>
-      </form>
       <div id="pst-exports-list"
            hx-get="/tenants/{{.Tenant.ID}}/pst-exports"
            hx-trigger="intersect once"
@@ -229,6 +252,183 @@
   <script>
   (function () {
     var valid = { jobs: 1, einstellungen: 1, statistiken: 1, snapshots: 1, "pst-exports": 1 };
+    var chartsBuilt = false;
+
+    function humanBytes(n) {
+      n = Number(n) || 0;
+      if (n < 1024) return n + " B";
+      var u = ["KB", "MB", "GB", "TB"];
+      var i = -1;
+      do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+      return n.toFixed(n >= 10 || i === 0 ? 1 : 2) + " " + u[i];
+    }
+
+    function chartDefaults() {
+      Chart.defaults.color = "#8b9aab";
+      Chart.defaults.borderColor = "#2a3542";
+      Chart.defaults.font.family = '"IBM Plex Sans", "Segoe UI", sans-serif';
+    }
+
+    function tooltipBytes(ctx) {
+      var v = ctx.parsed.y != null ? ctx.parsed.y : ctx.parsed;
+      if (typeof v === "object" && v !== null) v = v.x;
+      return (ctx.dataset.label ? ctx.dataset.label + ": " : "") + humanBytes(v);
+    }
+
+    function initUsageCharts() {
+      if (typeof Chart === "undefined") return;
+      var dataEl = document.getElementById("usage-chart-data");
+      var root = document.getElementById("usage-charts-root");
+      if (!dataEl || !root) return;
+
+      if (chartsBuilt) {
+        ["chart-composition", "chart-by-service", "chart-top-users"].forEach(function (id) {
+          var c = Chart.getChart(id);
+          if (c) c.resize();
+        });
+        return;
+      }
+
+      var usage;
+      try { usage = JSON.parse(dataEl.textContent); } catch (e) { return; }
+      chartDefaults();
+
+      var labels = {
+        sync: root.getAttribute("data-label-sync") || "Sync",
+        snapshots: root.getAttribute("data-label-snapshots") || "Snapshots",
+        exports: root.getAttribute("data-label-exports") || "Exports",
+        other: root.getAttribute("data-label-other") || "Other",
+        snapsLogical: root.getAttribute("data-label-snaps-logical") || "Snaps"
+      };
+      var colors = ["#2dd4bf", "#3d8bfd", "#fbbf24", "#8b9aab"];
+
+      var compLabels = [];
+      var compValues = [];
+      var compColors = [];
+      function pushComp(label, bytes, color) {
+        if (bytes > 0) {
+          compLabels.push(label);
+          compValues.push(bytes);
+          compColors.push(color);
+        }
+      }
+      pushComp(labels.sync, usage.sync_bytes || 0, colors[0]);
+      pushComp(labels.snapshots, usage.snapshots_bytes || 0, colors[1]);
+      pushComp(labels.exports, usage.exports_bytes || 0, colors[2]);
+      pushComp(labels.other, usage.other_bytes || 0, colors[3]);
+
+      var compCanvas = document.getElementById("chart-composition");
+      if (compCanvas && compValues.length) {
+        new Chart(compCanvas, {
+          type: "doughnut",
+          data: {
+            labels: compLabels,
+            datasets: [{ data: compValues, backgroundColor: compColors, borderWidth: 0 }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+              legend: { position: "bottom", labels: { boxWidth: 12, padding: 12 } },
+              tooltip: { callbacks: { label: function (ctx) { return ctx.label + ": " + humanBytes(ctx.raw); } } }
+            }
+          }
+        });
+      }
+
+      var services = (usage.by_service || []).filter(function (s) { return (s.total_bytes || 0) > 0; });
+      var svcCanvas = document.getElementById("chart-by-service");
+      if (svcCanvas && services.length) {
+        new Chart(svcCanvas, {
+          type: "bar",
+          data: {
+            labels: services.map(function (s) { return s.service; }),
+            datasets: [
+              {
+                label: labels.sync,
+                data: services.map(function (s) { return s.sync_bytes || 0; }),
+                backgroundColor: colors[0],
+                borderRadius: 4
+              },
+              {
+                label: labels.snapsLogical,
+                data: services.map(function (s) { return s.snapshot_bytes || 0; }),
+                backgroundColor: colors[1],
+                borderRadius: 4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+              x: { stacked: false, grid: { display: false } },
+              y: {
+                beginAtZero: true,
+                ticks: { callback: function (v) { return humanBytes(v); } },
+                grid: { color: "rgba(42,53,66,.6)" }
+              }
+            },
+            plugins: {
+              legend: { position: "bottom", labels: { boxWidth: 12, padding: 12 } },
+              tooltip: { callbacks: { label: tooltipBytes } }
+            }
+          }
+        });
+      }
+
+      var users = (usage.top_users || []).slice(0, 10);
+      var userCanvas = document.getElementById("chart-top-users");
+      if (userCanvas && users.length) {
+        new Chart(userCanvas, {
+          type: "bar",
+          data: {
+            labels: users.map(function (u) {
+              var name = u.user || "";
+              return name.length > 28 ? name.slice(0, 26) + "…" : name;
+            }),
+            datasets: [{
+              label: labels.sync,
+              data: users.map(function (u) { return u.bytes || 0; }),
+              backgroundColor: colors[0],
+              borderRadius: 4
+            }]
+          },
+          options: {
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+              x: {
+                beginAtZero: true,
+                ticks: { callback: function (v) { return humanBytes(v); } },
+                grid: { color: "rgba(42,53,66,.6)" }
+              },
+              y: { grid: { display: false } }
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: function (items) {
+                    var i = items[0] && items[0].dataIndex;
+                    return users[i] ? users[i].user : "";
+                  },
+                  label: function (ctx) {
+                    var u = users[ctx.dataIndex];
+                    var svc = u && u.service ? " · " + u.service : "";
+                    return humanBytes(ctx.raw) + svc;
+                  }
+                }
+              }
+            }
+          }
+        });
+      }
+
+      chartsBuilt = true;
+    }
+
     function activate(id) {
       if (!valid[id]) id = "jobs";
       document.querySelectorAll(".tenant-tab").forEach(function (el) {
@@ -240,6 +440,9 @@
         var on = el.getAttribute("data-panel") === id;
         el.hidden = !on;
       });
+      if (id === "statistiken") {
+        requestAnimationFrame(function () { initUsageCharts(); });
+      }
     }
     function fromHash() {
       var id = (location.hash || "#jobs").replace(/^#/, "");

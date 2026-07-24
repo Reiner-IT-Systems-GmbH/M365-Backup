@@ -110,7 +110,9 @@ Staging purgen.
 
 - **Kein** binäres Outlook-`.pst` (kein OSS-Writer) — ZIP aus EML-Bäumen
 - Braucht vorhandenes Exchange-Live-Sync
+- Scope (Job-`params` JSON): **alle** Postfächer, **ein** Postfach oder **ein Ordner** eines Postfachs
 - Liegt unter `exports/pst/{run}/`, eigene Retention (`PSTKeepRuns`), kein Kopia-Snapshot
+- Geplante PST-Läufe exportieren weiterhin alles; die UI unter „PST-Exporte“ steuert den manuellen Scope
 
 **Gedanke hinter SkipSnapshot:** PST ist ein abgeleitetes Artefakt aus schon gesicherten EMLs.
 Nochmal in Kopia zu speichern verdoppelt Speicher ohne Mehrwert.

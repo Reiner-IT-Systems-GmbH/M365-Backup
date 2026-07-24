@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -86,6 +87,13 @@ func main() {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"fmtTime": func(t time.Time, layout string) string {
 			return cfg.FormatTime(t, layout)
+		},
+		"toJSON": func(v any) (template.JS, error) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return "", err
+			}
+			return template.JS(b), nil
 		},
 	}).ParseFS(web.Templates, "templates/*.html")
 	if err != nil {

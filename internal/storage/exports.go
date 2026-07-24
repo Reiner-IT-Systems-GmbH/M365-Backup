@@ -31,6 +31,9 @@ type PSTExportRun struct {
 	Bytes     int64     `json:"bytes"`
 	Human     string    `json:"human"`
 	Zips      []string  `json:"zips,omitempty"` // downloadable *.zip basenames
+	Scope     string    `json:"scope,omitempty"`   // all | mailbox | folder
+	Mailbox   string    `json:"mailbox,omitempty"`
+	Folder    string    `json:"folder,omitempty"`
 }
 
 // ListPSTExports lists export run directories newest first.
@@ -234,3 +237,78 @@ func EnsurePSTExportDir(repoPath string) (runID, runDir string, err error) {
 	}
 	return runID, runDir, nil
 }
+
+// ListExchangeMailboxes returns mailbox directory names under the Exchange live-sync root.
+func ListExchangeMailboxes(syncRoot string) ([]string, error) {
+	entries, err := os.ReadDir(syncRoot)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// ListExchangeFolders returns top-level mail folder names under a mailbox in live-sync.
+func ListExchangeFolders(syncRoot, mailbox string) ([]string, error) {
+	mbDir, err := ResolveExchangeMailbox(syncRoot, mailbox)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(mbDir)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// ResolveExchangeMailbox returns the absolute mailbox path under syncRoot.
+func ResolveExchangeMailbox(syncRoot, mailbox string) (string, error) {
+	mailbox = strings.TrimSpace(mailbox)
+	if mailbox == "" || strings.Contains(mailbox, "..") || strings.ContainsAny(mailbox, `/\`) {
+		return "", fmt.Errorf("ungültiges Postfach")
+	}
+	target, err := EnsureSubpath(syncRoot, mailbox)
+	if err != nil {
+		return "", fmt.Errorf("ungültiges Postfach")
+	}
+	st, err := os.Stat(target)
+	if err != nil || !st.IsDir() {
+		return "", fmt.Errorf("Postfach nicht gefunden: %s", mailbox)
+	}
+	return target, nil
+}
+
+// ResolveExchangeFolder returns the absolute folder path under a mailbox.
+func ResolveExchangeFolder(syncRoot, mailbox, folder string) (string, error) {
+	mbDir, err := ResolveExchangeMailbox(syncRoot, mailbox)
+	if err != nil {
+		return "", err
+	}
+	folder = strings.TrimSpace(folder)
+	if folder == "" || strings.Contains(folder, "..") || strings.ContainsAny(folder, `/\`) {
+		return "", fmt.Errorf("ungültiger Ordner")
+	}
+	target, err := EnsureSubpath(mbDir, folder)
+	if err != nil {
+		return "", fmt.Errorf("ungültiger Ordner")
+	}
+	st, err := os.Stat(target)
+	if err != nil || !st.IsDir() {
+		return "", fmt.Errorf("Ordner nicht gefunden: %s", folder)
+	}
+	return target, nil
+}
+

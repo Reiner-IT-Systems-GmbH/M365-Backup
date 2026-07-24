@@ -87,6 +87,7 @@ func (s *Server) Router() http.Handler {
 	r.Post("/tenants/{id}/jobs/{jobID}/cancel", s.handleCancelJob)
 	r.Get("/tenants/{id}/snapshots", s.handleSnapshotsPartial)
 	r.Get("/tenants/{id}/pst-exports", s.handlePSTExportsPartial)
+	r.Get("/tenants/{id}/pst-folders", s.handlePSTFoldersPartial)
 	r.Get("/tenants/{id}/snapshots/{snapID}", s.handleSnapshotBrowse)
 	r.Get("/tenants/{id}/snapshots/{snapID}/file", s.handleSnapshotFile)
 	r.Get("/settings", s.handleSettings)
@@ -405,8 +406,29 @@ func (s *Server) handlePSTExportsPartial(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	pstExports, _ := storage.ListPSTExports(t.KopiaRepoPath)
+	var mailboxes []string
+	if syncRoot, ok := storage.LiveSyncRoot(t.KopiaRepoPath, "exchange"); ok {
+		mailboxes, _ = storage.ListExchangeMailboxes(syncRoot)
+	}
 	s.render(w, r, "pst_exports_partial.html", map[string]any{
-		"Tenant": t, "TenantID": id, "PSTExports": pstExports,
+		"Tenant": t, "TenantID": id, "PSTExports": pstExports, "Mailboxes": mailboxes,
+	})
+}
+
+func (s *Server) handlePSTFoldersPartial(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	mailbox := strings.TrimSpace(r.URL.Query().Get("mailbox"))
+	t, err := s.DB.GetTenant(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	var folders []string
+	if syncRoot, ok := storage.LiveSyncRoot(t.KopiaRepoPath, "exchange"); ok && mailbox != "" {
+		folders, _ = storage.ListExchangeFolders(syncRoot, mailbox)
+	}
+	s.render(w, r, "pst_folders_partial.html", map[string]any{
+		"Folders": folders,
 	})
 }
 
@@ -758,10 +780,23 @@ func (s *Server) handleTriggerBackup(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	service := chi.URLParam(r, "service")
 	jobType := "delta"
+	params := ""
 	if service == "pst" {
 		jobType = "export"
+		_ = r.ParseForm()
+		encoded, err := backup.EncodePSTParams(r.FormValue("scope"), r.FormValue("mailbox"), r.FormValue("folder"))
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		params = encoded
 	}
-	_, err := s.Runner.Enqueue(r.Context(), id, service, "", jobType)
+	var err error
+	if params != "" {
+		_, err = s.Runner.EnqueueParams(r.Context(), id, service, "", jobType, params)
+	} else {
+		_, err = s.Runner.Enqueue(r.Context(), id, service, "", jobType)
+	}
 	if err != nil {
 		if errors.Is(err, backup.ErrTenantBusy) {
 			http.Redirect(w, r, "/tenants/"+id+"?job=busy", http.StatusFound)
@@ -770,7 +805,11 @@ func (s *Server) handleTriggerBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	http.Redirect(w, r, "/tenants/"+id+"?job=queued", http.StatusFound)
+	redir := "/tenants/" + id + "?job=queued"
+	if service == "pst" {
+		redir = "/tenants/" + id + "?job=queued#pst-exports"
+	}
+	http.Redirect(w, r, redir, http.StatusFound)
 }
 
 func (s *Server) ensurePSTSchedule(ctx context.Context, tenantID string) {

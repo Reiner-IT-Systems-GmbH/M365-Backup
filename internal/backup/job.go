@@ -97,6 +97,11 @@ func (r *Runner) cleanStagingJob(jobID string) {
 }
 
 func (r *Runner) Enqueue(ctx context.Context, tenantID, service, scheduleID, jobType string) (*db.Job, error) {
+	return r.EnqueueParams(ctx, tenantID, service, scheduleID, jobType, "")
+}
+
+// EnqueueParams queues a job with optional JSON params (e.g. PST export scope).
+func (r *Runner) EnqueueParams(ctx context.Context, tenantID, service, scheduleID, jobType, params string) (*db.Job, error) {
 	// Serialize enqueue checks per process so two cron fires cannot both pass CountActiveJobs.
 	r.enqueueMu.Lock()
 	defer r.enqueueMu.Unlock()
@@ -116,6 +121,7 @@ func (r *Runner) Enqueue(ctx context.Context, tenantID, service, scheduleID, job
 		Service:    service,
 		JobType:    jobType,
 		Status:     "queued",
+		Params:     params,
 	}
 	if err := r.DB.CreateJob(ctx, job); err != nil {
 		return nil, err

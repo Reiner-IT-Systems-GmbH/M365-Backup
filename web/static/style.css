@@ -154,6 +154,18 @@ input, select {
   border-radius: 8px; padding: .55rem .7rem; font: inherit;
 }
 fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.radio-row {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .9rem; color: var(--text); margin: .35rem 0;
+}
+.radio-row input { width: auto; margin: 0; }
+.muted.small, .small.muted { font-size: .8rem; margin-top: .15rem; }
+.pst-export-form { margin-bottom: 1.25rem; max-width: 32rem; }
+.pst-export-form .pst-mailbox-field,
+.pst-export-form .pst-folder-field { display: none; }
+.pst-export-form:has(input[name="scope"][value="mailbox"]:checked) .pst-mailbox-field,
+.pst-export-form:has(input[name="scope"][value="folder"]:checked) .pst-mailbox-field,
+.pst-export-form:has(input[name="scope"][value="folder"]:checked) .pst-folder-field { display: grid; }
 section { margin: 2rem 0; }
 .plain { list-style: none; padding: 0; }
 .plain li { padding: .4rem 0; border-bottom: 1px solid var(--border); }
@@ -400,6 +412,35 @@ section { margin: 2rem 0; }
 }
 .usage-val-sm { font-size: .95rem; word-break: break-all; }
 .usage-stat.highlight { border-color: color-mix(in srgb, var(--accent2) 45%, var(--border)); }
+.usage-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1rem 0 1.25rem;
+}
+.usage-chart-card {
+  background: #0b1016;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: .85rem 1rem 1rem;
+  min-height: 0;
+}
+.usage-chart-card h3 {
+  margin: 0 0 .65rem;
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.usage-chart-card canvas {
+  display: block;
+  max-height: 220px;
+}
+.usage-chart-wide {
+  grid-column: 1 / -1;
+}
+.usage-chart-wide canvas {
+  max-height: 260px;
+}
 .usage-split {
   display: grid;
   grid-template-columns: 1fr 1.2fr;
@@ -469,6 +510,7 @@ table.compact th, table.compact td { padding: .4rem .55rem; font-size: .9rem; }
 .export-zips a { font-size: .85rem; word-break: break-all; }
 @media (max-width: 900px) {
   .usage-split { grid-template-columns: 1fr; }
+  .usage-charts { grid-template-columns: 1fr; }
   .job-when { margin-left: 0; }
 }
 .eml-meta {
