@@ -361,6 +361,12 @@ section { margin: 2rem 0; }
   padding: 1.1rem 1.25rem;
   margin: 1.25rem 0;
 }
+.usage-explain {
+  margin: .75rem 0 1rem;
+  font-size: .9rem;
+  line-height: 1.45;
+  max-width: 62rem;
+}
 .usage-grid {
   display: flex;
   flex-wrap: wrap;

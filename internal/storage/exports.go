@@ -171,6 +171,7 @@ func (e *Engine) ApplySmartRetention(ctx context.Context, repoPath, password str
 	if err != nil {
 		return deleted, err
 	}
+	e.InvalidateSnapshotCache(repoPath)
 	// Reclaim blob space; SafetyNone is intentional after Smart Recycle (operator-approved deletes).
 	if gcErr := e.runFullGC(ctx, repoPath, password); gcErr != nil {
 		return deleted, fmt.Errorf("smart recycle deleted %d snapshots but kopia GC failed: %w", deleted, gcErr)
@@ -204,6 +205,7 @@ func (e *Engine) ApplyRetention(ctx context.Context, repoPath, password string, 
 	if err != nil {
 		return err
 	}
+	e.InvalidateSnapshotCache(repoPath)
 	return e.runFullGC(ctx, repoPath, password)
 }
 

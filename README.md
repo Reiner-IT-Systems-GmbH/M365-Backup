@@ -41,7 +41,8 @@ Typical deployment: Debian or Docker Compose + MySQL, bind-mounted snapshot/stag
 - **Multi-tenant** – manage arbitrary Entra ID / Microsoft 365 tenants
 - **Services** – Exchange (EML + delta), OneDrive (delta), Teams / SharePoint (full pull; see [Current status](#current-status-kopia--services)), PST EML-ZIP export
 - **Incremental** – Graph delta tokens in SQLite or MySQL + encrypted **Kopia** repo per tenant (live `sync/` for Exchange/OneDrive)
-- **Scheduler** – cron expressions per tenant/service (`robfig/cron`)
+- **Scheduler** – cron expressions per tenant/service (`robfig/cron`); defaults auto-created; **one active job per tenant** (lock)
+
 - **Retention** – Smart Recycle (hours/daily/weekly/monthly/yearly) + Kopia GC
 - **Notifications** – SMTP, Pushover, Slack/Teams/generic webhooks (errors, key expiry, restore)
 - **Key monitoring** – alert when Azure client secrets approach expiry
@@ -77,6 +78,9 @@ flowchart TB
 ```
 
 **Data flow:** Scheduler (or UI) enqueues a job → runner pulls changes via Graph delta → writes into a staging directory → creates a [Kopia](https://kopia.io/) snapshot in that tenant’s repo → updates delta tokens in the DB → optional notification.
+
+Design-Intent & Abläufe (Architektur, Secrets, Jobs, Kopia, UI): **[docs/](docs/README.md)**.  
+Kurz zu Live-Sync / Snapshots / Cron / Tenant-Lock: [docs/backup-logic.md](docs/backup-logic.md).
 
 **Storage:** real Kopia Go library (`github.com/kopia/kopia`). Per tenant: `{KOPIA_ROOT}/{tenant-id}/repo/` (encrypted content-addressable store) plus sibling `sync/` / `exports/` for live trees and PST runs.
 
@@ -251,7 +255,7 @@ Publish artifacts from CI (GitHub/GitLab Releases) and install the same way as �
 | `STAGING_ROOT` | no | `./data/staging` | Temporary backup staging |
 | `MASTER_KEY` | **yes** | — | Base64 32-byte AES key |
 | `ADMIN_PASSWORD` | **yes** | — | UI password (min 8 chars) |
-| `MAX_CONCURRENT_JOBS` | no | `2` | Parallel backup jobs |
+| `MAX_CONCURRENT_JOBS` | no | `2` | Max parallel jobs **across tenants** (per tenant: always ≤1, see [docs/backup-logic.md](docs/backup-logic.md)) |
 | `SMTP_*` | no | — | Optional env-level SMTP fallback |
 
 Secrets must live in environment / `EnvironmentFile=` only — never in the repository.

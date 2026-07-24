@@ -32,6 +32,12 @@
     {{if eq .UsageFlash "ok"}}
     <p class="callout">Speicher gemessen und im Cache gespeichert.</p>
     {{end}}
+    {{if eq .JobFlash "busy"}}
+    <p class="callout">Tenant hat bereits einen aktiven Job — neuer Start wurde übersprungen (Lock).</p>
+    {{end}}
+    {{if eq .JobFlash "queued"}}
+    <p class="callout">Backup-Job eingereiht.</p>
+    {{end}}
 
     <div class="tenant-quicklinks">
       <details class="quick-menu">
@@ -77,6 +83,7 @@
 
     <section id="einstellungen" class="tenant-panel" data-panel="einstellungen" role="tabpanel" hidden>
       <h2>Schedules</h2>
+      <p class="muted">Fehlende Dienste werden automatisch mit Default-Cron angelegt. Leeres Cron-Feld beim Speichern setzt den Default. Pro Tenant läuft höchstens ein Job gleichzeitig.</p>
       <table>
         <thead><tr><th>Service</th><th>Cron</th><th>Enabled</th><th></th></tr></thead>
         <tbody>
@@ -85,7 +92,7 @@
             <td>{{.Service}}</td>
             <td colspan="3">
               <form method="post" action="/tenants/{{$.Tenant.ID}}/schedules/{{.ID}}" class="row gap">
-                <input name="cron_expr" value="{{.CronExpr}}">
+                <input name="cron_expr" value="{{.CronExpr}}" placeholder="Default wenn leer">
                 <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Enabled}}checked{{end}}> enabled</label>
                 <button type="submit">Save</button>
               </form>
@@ -127,10 +134,16 @@
         <p class="muted">Cache (stündlich / manuell) · Gesamt <strong>{{printf "%.2f" .Usage.TotalGB}} GB</strong> ({{.Usage.TotalHuman}})
           {{if .UsageMeasuredAt}}{{if not .UsageMeasuredAt.IsZero}} · Stand {{.UsageMeasuredAt.UTC.Format "2006-01-02 15:04"}} UTC{{end}}{{end}}
         </p>
+        <p class="callout usage-explain">
+          <strong>Gesamt</strong> = echte Belegung auf der Platte.
+          <strong>Live-Sync</strong> ist die Arbeitskopie für inkrementelle Graph-Deltas (aktueller Stand).
+          <strong>Snapshots</strong> sind die verschlüsselte Historie in Kopia — unveränderte Daten werden dedupliziert, deshalb wächst die Platte nicht mit jedem Lauf um die volle Mailbox-Größe.
+          Live-Sync und Snapshots liegen nebeneinander; deshalb ist Gesamt ≈ Sync + Snapshots, nicht „nur Snapshots“.
+        </p>
         <div class="usage-grid">
-          <div class="usage-stat"><span class="usage-val">{{printf "%.2f" .Usage.TotalGB}} GB</span><span class="muted">Gesamt</span></div>
-          <div class="usage-stat"><span class="usage-val">{{.Usage.SyncHuman}}</span><span class="muted">Live-Sync</span></div>
-          <div class="usage-stat"><span class="usage-val">{{.Usage.SnapshotsHuman}}</span><span class="muted">Snapshots</span></div>
+          <div class="usage-stat"><span class="usage-val">{{printf "%.2f" .Usage.TotalGB}} GB</span><span class="muted">Gesamt (Platte)</span></div>
+          <div class="usage-stat"><span class="usage-val">{{.Usage.SyncHuman}}</span><span class="muted">Live-Sync (Arbeitskopie)</span></div>
+          <div class="usage-stat"><span class="usage-val">{{.Usage.SnapshotsHuman}}</span><span class="muted">Snapshots (Kopia, dedup)</span></div>
           {{if gt .Usage.ExportsBytes 0}}
           <div class="usage-stat"><span class="usage-val">{{.Usage.ExportsHuman}}</span><span class="muted">PST-Exports</span></div>
           {{end}}
@@ -145,8 +158,9 @@
         <div class="usage-split">
           <div>
             <h3>Nach Dienst</h3>
+            <p class="muted" style="margin:0 0 .5rem;font-size:.85rem">Spalte „Snaps (logisch)“ summiert die Inhaltsgröße je Snapshot — nicht den Plattenverbrauch. Durch Dedup ist die echte Snapshot-Belegung oben unter „Snapshots“.</p>
             <table class="compact">
-              <thead><tr><th>Dienst</th><th>Sync</th><th>Snaps</th><th>Σ</th></tr></thead>
+              <thead><tr><th>Dienst</th><th>Sync</th><th>Snaps (logisch)</th><th>Σ logisch</th></tr></thead>
               <tbody>
               {{range .Usage.ByService}}
                 {{if gt .TotalBytes 0}}
@@ -193,20 +207,13 @@
 
     <section id="snapshots" class="tenant-panel" data-panel="snapshots" role="tabpanel" hidden>
       <h2 class="sr-only">Snapshots</h2>
-      <p class="muted">Vollständiger Browse mit Dienst- und Versionswahl im <a href="/tenants/{{.Tenant.ID}}/browser">Dateibrowser</a>.</p>
-      {{if .Snapshots}}
-      <ul class="plain">
-        {{range .Snapshots}}
-        <li>
-          <a href="/tenants/{{$.Tenant.ID}}/browser?{{if .Service}}service={{.Service}}&amp;{{end}}version={{.ID}}"><code>{{.ID}}</code></a>
-          {{if .Service}}· <span class="badge">{{.Service}}</span>{{end}}
-          · {{.CreatedAt.Format "2006-01-02 15:04"}} · {{.Files}} files · {{.Bytes}} bytes
-        </li>
-        {{end}}
-      </ul>
-      {{else}}
-      <p class="muted">No snapshots yet.</p>
-      {{end}}
+      <p class="muted">Punkt-in-Zeit-Kopien (Kopia, dedupliziert). Browse ohne Full-Extract im <a href="/tenants/{{.Tenant.ID}}/browser">Dateibrowser</a> — für den aktuellen Stand „Live-Sync“ wählen.</p>
+      <div id="snapshots-list"
+           hx-get="/tenants/{{.Tenant.ID}}/snapshots"
+           hx-trigger="intersect once"
+           hx-swap="innerHTML">
+        <p class="muted">Lade Snapshots…</p>
+      </div>
     </section>
 
     <section id="pst-exports" class="tenant-panel" data-panel="pst-exports" role="tabpanel" hidden>
@@ -215,30 +222,12 @@
       <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst" class="inline" style="margin-bottom:.75rem">
         <button type="submit">Export jetzt starten</button>
       </form>
-      {{if .PSTExports}}
-      <table class="compact">
-        <thead><tr><th>Lauf</th><th>User</th><th>Mails</th><th>Größe</th><th>Dateien</th></tr></thead>
-        <tbody>
-        {{range $ex := .PSTExports}}
-          <tr>
-            <td><code>{{$ex.ID}}</code> · {{$ex.CreatedAt.Format "02.01.2006 15:04"}}</td>
-            <td>{{$ex.Users}}</td>
-            <td>{{$ex.Files}}</td>
-            <td>{{$ex.Human}}</td>
-            <td class="export-zips">
-              {{range $ex.Zips}}
-              <a href="/tenants/{{$.Tenant.ID}}/exports/pst/{{$ex.ID}}/{{.}}">{{.}}</a>
-              {{else}}
-              <span class="muted">—</span>
-              {{end}}
-            </td>
-          </tr>
-        {{end}}
-        </tbody>
-      </table>
-      {{else}}
-      <p class="muted">Noch keine Exporte.</p>
-      {{end}}
+      <div id="pst-exports-list"
+           hx-get="/tenants/{{.Tenant.ID}}/pst-exports"
+           hx-trigger="intersect once"
+           hx-swap="innerHTML">
+        <p class="muted">Lade Exporte…</p>
+      </div>
     </section>
   </main>
   <script>
@@ -261,7 +250,12 @@
       activate(id);
     }
     window.addEventListener("hashchange", fromHash);
-    fromHash();
+    // After HTMX (defer) so intersect observers are armed before we unhide a tab.
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", fromHash);
+    } else {
+      fromHash();
+    }
   })();
   </script>
 </body>

@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -32,6 +33,16 @@ func NewScheduler(database *db.DB, runner *Runner, log *slog.Logger) *Scheduler 
 
 func (s *Scheduler) Start(ctx context.Context) error {
 	s.cron.Start()
+	// Ensure every tenant has the built-in schedule rows (missing services get defaults).
+	if list, err := s.DB.ListTenants(ctx); err == nil && s.Runner != nil && s.Runner.Tenants != nil {
+		for i := range list {
+			if n, err := s.Runner.Tenants.EnsureDefaultSchedules(ctx, list[i].ID); err != nil {
+				s.Log.Warn("ensure schedules", "tenant", list[i].Name, "err", err)
+			} else if n > 0 {
+				s.Log.Info("created default schedules", "tenant", list[i].Name, "count", n)
+			}
+		}
+	}
 	if err := s.Reload(ctx); err != nil {
 		return err
 	}
@@ -95,8 +106,12 @@ func (s *Scheduler) Reload(ctx context.Context) error {
 			s.Log.Info("scheduler fire", "tenant", t.Name, "service", sch.Service, "cron", sch.CronExpr, "job_type", jobType)
 			_, err = s.Runner.Enqueue(cctx, sch.TenantID, sch.Service, sch.ID, jobType)
 			if err != nil {
-				s.Log.Error("enqueue scheduled job", "tenant", t.Name, "service", sch.Service, "err", err)
-				return
+				if errors.Is(err, ErrTenantBusy) {
+					s.Log.Info("scheduler skip (tenant busy)", "tenant", t.Name, "service", sch.Service)
+				} else {
+					s.Log.Error("enqueue scheduled job", "tenant", t.Name, "service", sch.Service, "err", err)
+					return
+				}
 			}
 			sch.LastRun = time.Now().UTC()
 			_ = s.DB.UpdateSchedule(cctx, &sch)

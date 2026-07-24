@@ -177,6 +177,22 @@ func (d *DB) UpdateJobProgressMessage(ctx context.Context, jobID, msg string) er
 	return err
 }
 
+// CountActiveJobs returns queued+running jobs for a tenant (optionally one service).
+func (d *DB) CountActiveJobs(ctx context.Context, tenantID, service string) (int, error) {
+	var n int
+	var err error
+	if service == "" {
+		err = d.SQL.QueryRowContext(ctx, `
+			SELECT COUNT(1) FROM jobs
+			WHERE tenant_id=? AND status IN ('queued', 'running')`, tenantID).Scan(&n)
+	} else {
+		err = d.SQL.QueryRowContext(ctx, `
+			SELECT COUNT(1) FROM jobs
+			WHERE tenant_id=? AND service=? AND status IN ('queued', 'running')`, tenantID, service).Scan(&n)
+	}
+	return n, err
+}
+
 // FailOrphanedJobs marks jobs left in queued/running after a process crash/restart.
 func (d *DB) FailOrphanedJobs(ctx context.Context, reason string) (int64, error) {
 	now := time.Now().UTC()

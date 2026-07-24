@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rhw/m365backup/internal/crypto"
@@ -18,11 +19,51 @@ var DefaultSchedules = []struct {
 	CronExpr string
 	Enabled  bool
 }{
-	{"exchange", "0 * * * *", true},
-	{"onedrive", "0 2 * * *", true},
-	{"teams", "15 2 * * *", true},
-	{"sharepoint", "0 1 * * 0", true},
-	{"pst", "0 4 * * 0", false}, // weekly PST export, off by default
+	// Staggered so services do not all fire in the same minute.
+	{"exchange", "0 * * * *", true},    // hourly at :00
+	{"onedrive", "30 2 * * *", true},   // daily 02:30
+	{"teams", "0 3 * * *", true},       // daily 03:00
+	{"sharepoint", "30 3 * * 0", true}, // weekly Sun 03:30
+	{"pst", "0 5 * * 0", false},        // weekly Sun 05:00, off by default
+}
+
+// DefaultCronFor returns the built-in cron expression for a service.
+func DefaultCronFor(service string) (string, bool) {
+	for _, ds := range DefaultSchedules {
+		if ds.Service == service {
+			return ds.CronExpr, true
+		}
+	}
+	return "", false
+}
+
+// EnsureDefaultSchedules creates any missing per-service schedule rows for a tenant.
+// Existing rows are left unchanged (cron/enabled stay as configured).
+func (m *Manager) EnsureDefaultSchedules(ctx context.Context, tenantID string) (created int, err error) {
+	existing, err := m.DB.ListSchedules(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	have := map[string]bool{}
+	for _, s := range existing {
+		have[strings.ToLower(s.Service)] = true
+	}
+	for _, ds := range DefaultSchedules {
+		if have[ds.Service] {
+			continue
+		}
+		s := &db.Schedule{
+			TenantID: tenantID,
+			Service:  ds.Service,
+			CronExpr: ds.CronExpr,
+			Enabled:  ds.Enabled,
+		}
+		if err := m.DB.CreateSchedule(ctx, s); err != nil {
+			return created, err
+		}
+		created++
+	}
+	return created, nil
 }
 
 type Manager struct {

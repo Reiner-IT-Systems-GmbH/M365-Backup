@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kopia/kopia/fs/localfs"
@@ -39,17 +40,21 @@ const (
 //	exports/        — PST export runs
 //
 // Recovery requires the repo/ directory and the tenant repository password — not this app or the DB.
-type Engine struct{}
+type Engine struct {
+	snapMu    sync.Mutex
+	snapLists *sync.Map // repoPath -> snapListEntry
+}
 
 func NewEngine() *Engine { return &Engine{} }
 
 type SnapshotInfo struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	Source    string    `json:"source"`
-	Service   string    `json:"service,omitempty"`
-	Bytes     int64     `json:"bytes"`
-	Files     int       `json:"files"`
+	ID         string    `json:"id"`
+	CreatedAt  time.Time `json:"created_at"`
+	Source     string    `json:"source"`
+	Service    string    `json:"service,omitempty"`
+	Bytes      int64     `json:"bytes"`
+	BytesHuman string    `json:"bytes_human,omitempty"`
+	Files      int       `json:"files"`
 }
 
 func (e *Engine) CreateRepo(ctx context.Context, repoPath, password string) error {
@@ -128,6 +133,7 @@ func (e *Engine) Snapshot(ctx context.Context, repoPath, password, sourceDir, se
 	if err != nil {
 		return nil, err
 	}
+	e.InvalidateSnapshotCache(repoPath)
 	return info, nil
 }
 
@@ -325,12 +331,14 @@ func manifestToInfo(man *snapshot.Manifest, id manifest.ID) *SnapshotInfo {
 	if created.IsZero() {
 		created = man.EndTime.ToTime().UTC()
 	}
+	bytes := man.Stats.TotalFileSize
 	return &SnapshotInfo{
-		ID:        string(id),
-		CreatedAt: created,
-		Source:    man.Source.Path,
-		Service:   svc,
-		Bytes:     man.Stats.TotalFileSize,
-		Files:     int(man.Stats.TotalFileCount),
+		ID:         string(id),
+		CreatedAt:  created,
+		Source:     man.Source.Path,
+		Service:    svc,
+		Bytes:      bytes,
+		BytesHuman: FormatBytes(bytes),
+		Files:      int(man.Stats.TotalFileCount),
 	}
 }

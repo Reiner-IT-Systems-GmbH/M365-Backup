@@ -49,7 +49,7 @@
       <a class="version-card {{if eq $.Version .ID}}active{{end}}"
          href="/tenants/{{$.Tenant.ID}}/browser?service={{$.Service}}&amp;version={{.ID}}">
         <strong>{{.CreatedAt.Format "2006-01-02 15:04"}} UTC</strong>
-        <span class="muted"><code>{{.ID}}</code> · {{.Files}} Dateien · {{.Bytes}} bytes</span>
+        <span class="muted"><code>{{.ID}}</code> · {{.Files}} Dateien · {{.BytesHuman}}</span>
       </a>
       {{else}}
         {{if not .HasLive}}

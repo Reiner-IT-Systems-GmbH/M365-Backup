@@ -1,0 +1,26 @@
+{{define "pst_exports_partial.html"}}
+{{if .PSTExports}}
+<table class="compact">
+  <thead><tr><th>Lauf</th><th>User</th><th>Mails</th><th>Größe</th><th>Dateien</th></tr></thead>
+  <tbody>
+  {{range $ex := .PSTExports}}
+    <tr>
+      <td><code>{{$ex.ID}}</code> · {{$ex.CreatedAt.Format "02.01.2006 15:04"}}</td>
+      <td>{{$ex.Users}}</td>
+      <td>{{$ex.Files}}</td>
+      <td>{{$ex.Human}}</td>
+      <td class="export-zips">
+        {{range $ex.Zips}}
+        <a href="/tenants/{{$.TenantID}}/exports/pst/{{$ex.ID}}/{{.}}">{{.}}</a>
+        {{else}}
+        <span class="muted">—</span>
+        {{end}}
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="muted">Noch keine Exporte.</p>
+{{end}}
+{{end}}

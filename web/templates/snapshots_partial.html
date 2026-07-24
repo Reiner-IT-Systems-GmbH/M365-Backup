@@ -1,0 +1,15 @@
+{{define "snapshots_partial.html"}}
+{{if .Snapshots}}
+<ul class="plain">
+  {{range .Snapshots}}
+  <li>
+    <a href="/tenants/{{$.TenantID}}/browser?{{if .Service}}service={{.Service}}&amp;{{end}}version={{.ID}}"><code>{{.ID}}</code></a>
+    {{if .Service}}· <span class="badge">{{.Service}}</span>{{end}}
+    · {{.CreatedAt.Format "2006-01-02 15:04"}} · {{.Files}} Dateien · {{.BytesHuman}}
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="muted">Noch keine Snapshots.</p>
+{{end}}
+{{end}}

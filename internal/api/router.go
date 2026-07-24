@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -82,6 +83,8 @@ func (s *Server) Router() http.Handler {
 	r.Get("/tenants/{id}/jobs/{jobID}", s.handleJobDetail)
 	r.Get("/tenants/{id}/jobs/{jobID}/live", s.handleJobLive)
 	r.Post("/tenants/{id}/jobs/{jobID}/cancel", s.handleCancelJob)
+	r.Get("/tenants/{id}/snapshots", s.handleSnapshotsPartial)
+	r.Get("/tenants/{id}/pst-exports", s.handlePSTExportsPartial)
 	r.Get("/tenants/{id}/snapshots/{snapID}", s.handleSnapshotBrowse)
 	r.Get("/tenants/{id}/snapshots/{snapID}/file", s.handleSnapshotFile)
 	r.Get("/settings", s.handleSettings)
@@ -248,19 +251,21 @@ func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", 404)
 		return
 	}
-	s.ensurePSTSchedule(r.Context(), id)
+	if n, err := s.Tenants.EnsureDefaultSchedules(r.Context(), id); err == nil && n > 0 {
+		_ = s.Sched.Reload(r.Context())
+	}
 	jobs, _ := s.DB.ListJobs(r.Context(), id, 30)
 	schedules, _ := s.DB.ListSchedules(r.Context(), id)
-	snaps := s.listTenantSnapshots(r.Context(), t)
-	s.annotateSnapshots(r.Context(), id, snaps)
+	// Snapshots (Kopia) and PST exports are loaded lazily via HTMX when their tabs open,
+	// so #jobs stays fast and does not wait on repo connect / disk walks.
 	usage, measuredAt := s.cachedUsage(r.Context(), id)
-	pstExports, _ := storage.ListPSTExports(t.KopiaRepoPath)
 	retention := storage.ParseRetentionJSON(t.RetentionJSON)
 	_ = s.Templates.ExecuteTemplate(w, "tenant_detail.html", map[string]any{
 		"Tenant": t, "TenantID": id, "Jobs": jobs, "JobCounts": countJobs(jobs),
-		"Schedules": schedules, "Snapshots": snaps, "Usage": usage, "UsageMeasuredAt": measuredAt,
+		"Schedules": schedules, "Usage": usage, "UsageMeasuredAt": measuredAt,
 		"UsageFlash": r.URL.Query().Get("usage"),
-		"PSTExports": pstExports, "Retention": retention,
+		"JobFlash":   r.URL.Query().Get("job"),
+		"Retention":  retention,
 	})
 }
 
@@ -373,6 +378,33 @@ func (s *Server) handleJobsPartial(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Templates.ExecuteTemplate(w, "jobs_partial.html", map[string]any{
 		"Jobs": jobs, "TenantID": id, "JobCounts": countJobs(jobs),
+	})
+}
+
+func (s *Server) handleSnapshotsPartial(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	t, err := s.DB.GetTenant(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	snaps := s.listTenantSnapshots(r.Context(), t)
+	s.annotateSnapshots(r.Context(), id, snaps)
+	_ = s.Templates.ExecuteTemplate(w, "snapshots_partial.html", map[string]any{
+		"Tenant": t, "TenantID": id, "Snapshots": snaps,
+	})
+}
+
+func (s *Server) handlePSTExportsPartial(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	t, err := s.DB.GetTenant(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	pstExports, _ := storage.ListPSTExports(t.KopiaRepoPath)
+	_ = s.Templates.ExecuteTemplate(w, "pst_exports_partial.html", map[string]any{
+		"Tenant": t, "TenantID": id, "PSTExports": pstExports,
 	})
 }
 
@@ -510,6 +542,11 @@ func (s *Server) annotateSnapshots(ctx context.Context, tenantID string, snaps [
 		}
 	}
 	storage.AnnotateServices(snaps, m)
+	for i := range snaps {
+		if snaps[i].BytesHuman == "" {
+			snaps[i].BytesHuman = storage.FormatBytes(snaps[i].Bytes)
+		}
+	}
 }
 
 func (s *Server) listTenantSnapshots(ctx context.Context, t *db.Tenant) []storage.SnapshotInfo {
@@ -517,7 +554,7 @@ func (s *Server) listTenantSnapshots(ctx context.Context, t *db.Tenant) []storag
 	if err != nil {
 		return nil
 	}
-	snaps, err := s.Store.ListSnapshots(ctx, t.KopiaRepoPath, pass)
+	snaps, err := s.Store.ListSnapshotsCached(ctx, t.KopiaRepoPath, pass)
 	if err != nil {
 		return nil
 	}
@@ -614,20 +651,37 @@ func (s *Server) handleBrowser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if service != "" && version != "" {
-		root, err := s.resolveBrowserRoot(r.Context(), t, service, version)
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
 		var entries []storage.BrowseEntry
-		if q != "" {
-			entries, err = storage.SearchBrowse(root, q, 500)
+		if version == "live" {
+			root, err := s.resolveBrowserRoot(r.Context(), t, service, version)
+			if err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			if q != "" {
+				entries, err = storage.SearchBrowse(root, q, 500)
+			} else {
+				entries, err = storage.ListBrowseDir(root, rel)
+			}
+			if err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
 		} else {
-			entries, err = storage.ListBrowseDir(root, rel)
-		}
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
+			_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
+			if err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			if q != "" {
+				entries, err = s.Store.SearchBrowseSnapshot(r.Context(), t.KopiaRepoPath, kopiaPass, version, q, 500)
+			} else {
+				entries, err = s.Store.ListBrowseSnapshot(r.Context(), t.KopiaRepoPath, kopiaPass, version, rel)
+			}
+			if err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
 		}
 		parent := ""
 		if rel != "" && rel != "." {
@@ -653,19 +707,35 @@ func (s *Server) handleBrowserFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", 404)
 		return
 	}
-	root, err := s.resolveBrowserRoot(r.Context(), t, service, version)
+	if version == "live" {
+		root, err := s.resolveBrowserRoot(r.Context(), t, service, version)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		abs, err := storage.OpenBrowseFile(root, rel)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		name := storage.DisplayNameFor(abs, filepath.Base(abs))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+		http.ServeFile(w, r, abs)
+		return
+	}
+	if err := storage.ValidateSnapshotID(version); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	abs, err := storage.OpenBrowseFile(root, rel)
-	if err != nil {
+	if err := s.Store.ServeSnapshotFile(r.Context(), t.KopiaRepoPath, kopiaPass, version, rel, w); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	name := storage.DisplayNameFor(abs, filepath.Base(abs))
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
-	http.ServeFile(w, r, abs)
 }
 
 func (s *Server) resolveBrowserRoot(ctx context.Context, t *db.Tenant, service, version string) (string, error) {
@@ -679,14 +749,7 @@ func (s *Server) resolveBrowserRoot(ctx context.Context, t *db.Tenant, service, 
 		}
 		return root, nil
 	}
-	if err := storage.ValidateSnapshotID(version); err != nil {
-		return "", err
-	}
-	_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
-	if err != nil {
-		return "", err
-	}
-	return s.Store.EnsureExtracted(ctx, t.KopiaRepoPath, kopiaPass, version, s.Cfg.StagingRoot)
+	return "", fmt.Errorf("snapshot browse uses Kopia virtual FS; use ListBrowseSnapshot")
 }
 
 func (s *Server) handleTriggerBackup(w http.ResponseWriter, r *http.Request) {
@@ -698,10 +761,47 @@ func (s *Server) handleTriggerBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err := s.Runner.Enqueue(r.Context(), id, service, "", jobType)
 	if err != nil {
+		if errors.Is(err, backup.ErrTenantBusy) {
+			http.Redirect(w, r, "/tenants/"+id+"?job=busy", http.StatusFound)
+			return
+		}
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	http.Redirect(w, r, "/tenants/"+id, http.StatusFound)
+	http.Redirect(w, r, "/tenants/"+id+"?job=queued", http.StatusFound)
+}
+
+func (s *Server) ensurePSTSchedule(ctx context.Context, tenantID string) {
+	_, _ = s.Tenants.EnsureDefaultSchedules(ctx, tenantID)
+	_ = s.Sched.Reload(ctx)
+}
+
+func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	sid := chi.URLParam(r, "sid")
+	tid := chi.URLParam(r, "id")
+	sch, err := s.DB.GetSchedule(r.Context(), sid)
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	if sch.TenantID != tid {
+		http.Error(w, "not found", 404)
+		return
+	}
+	sch.CronExpr = strings.TrimSpace(r.FormValue("cron_expr"))
+	if sch.CronExpr == "" {
+		if def, ok := tenant.DefaultCronFor(sch.Service); ok {
+			sch.CronExpr = def
+		} else {
+			http.Error(w, "cron_expr required", 400)
+			return
+		}
+	}
+	sch.Enabled = r.FormValue("enabled") == "on" || r.FormValue("enabled") == "true" || r.FormValue("enabled") == "1"
+	_ = s.DB.UpdateSchedule(r.Context(), sch)
+	_ = s.Sched.Reload(r.Context())
+	http.Redirect(w, r, "/tenants/"+tid, http.StatusFound)
 }
 
 func (s *Server) handleUpdateRetention(w http.ResponseWriter, r *http.Request) {
@@ -768,45 +868,6 @@ func atoiDefault(s string, def int) int {
 		return def
 	}
 	return n
-}
-
-func (s *Server) ensurePSTSchedule(ctx context.Context, tenantID string) {
-	schedules, err := s.DB.ListSchedules(ctx, tenantID)
-	if err != nil {
-		return
-	}
-	for _, sch := range schedules {
-		if sch.Service == "pst" {
-			return
-		}
-	}
-	_ = s.DB.CreateSchedule(ctx, &db.Schedule{
-		TenantID: tenantID,
-		Service:  "pst",
-		CronExpr: "0 4 * * 0",
-		Enabled:  false,
-	})
-	_ = s.Sched.Reload(ctx)
-}
-
-func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	sid := chi.URLParam(r, "sid")
-	tid := chi.URLParam(r, "id")
-	sch, err := s.DB.GetSchedule(r.Context(), sid)
-	if err != nil {
-		http.Error(w, err.Error(), 404)
-		return
-	}
-	if sch.TenantID != tid {
-		http.Error(w, "not found", 404)
-		return
-	}
-	sch.CronExpr = r.FormValue("cron_expr")
-	sch.Enabled = r.FormValue("enabled") == "on" || r.FormValue("enabled") == "true" || r.FormValue("enabled") == "1"
-	_ = s.DB.UpdateSchedule(r.Context(), sch)
-	_ = s.Sched.Reload(r.Context())
-	http.Redirect(w, r, "/tenants/"+tid, http.StatusFound)
 }
 
 func (s *Server) handleRestoreForm(w http.ResponseWriter, r *http.Request) {
@@ -1027,9 +1088,9 @@ func (s *Server) handleConsentCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// Kick off first full backups for all services
-	for _, svc := range []string{"exchange", "onedrive", "teams", "sharepoint"} {
-		_, _ = s.Runner.Enqueue(r.Context(), tenantID, svc, "", "full")
+	// Start only Exchange first — tenant lock allows one active job; other services follow via cron.
+	if _, err := s.Runner.Enqueue(r.Context(), tenantID, "exchange", "", "full"); err != nil && !errors.Is(err, backup.ErrTenantBusy) {
+		s.Log.Warn("post-consent enqueue", "tenant", tenantID, "err", err)
 	}
 	http.Redirect(w, r, "/tenants/"+tenantID+"?consent=ok", http.StatusFound)
 }
@@ -1159,7 +1220,12 @@ func (s *Server) apiUpdateSchedules(w http.ResponseWriter, r *http.Request) {
 		if sch.TenantID != tid {
 			continue
 		}
-		sch.CronExpr = item.CronExpr
+		sch.CronExpr = strings.TrimSpace(item.CronExpr)
+		if sch.CronExpr == "" {
+			if def, ok := tenant.DefaultCronFor(sch.Service); ok {
+				sch.CronExpr = def
+			}
+		}
 		sch.Enabled = item.Enabled
 		_ = s.DB.UpdateSchedule(r.Context(), sch)
 	}

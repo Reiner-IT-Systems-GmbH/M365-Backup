@@ -28,10 +28,16 @@ type Runner struct {
 	MaxConcurrent int
 	Log           *slog.Logger
 
-	sem     chan struct{}
-	mu      sync.Mutex
-	cancels map[string]context.CancelFunc
+	sem         chan struct{}
+	mu          sync.Mutex
+	cancels     map[string]context.CancelFunc
+	enqueueMu   sync.Mutex
+	tenantGates sync.Map // tenantID -> *sync.Mutex (serialize runs per tenant)
 }
+
+// ErrTenantBusy is returned when Enqueue is refused because this tenant already
+// has a queued or running job. Prevents overlapping backups on the same repo/sync tree.
+var ErrTenantBusy = errors.New("tenant already has an active backup job")
 
 func NewRunner(database *db.DB, tenants *tenant.Manager, reg *Registry, store *storage.Engine, notifier *notification.Service, staging string, maxConc int, log *slog.Logger) *Runner {
 	if maxConc < 1 {
@@ -91,6 +97,19 @@ func (r *Runner) cleanStagingJob(jobID string) {
 }
 
 func (r *Runner) Enqueue(ctx context.Context, tenantID, service, scheduleID, jobType string) (*db.Job, error) {
+	// Serialize enqueue checks per process so two cron fires cannot both pass CountActiveJobs.
+	r.enqueueMu.Lock()
+	defer r.enqueueMu.Unlock()
+
+	n, err := r.DB.CountActiveJobs(ctx, tenantID, "")
+	if err != nil {
+		return nil, err
+	}
+	if n > 0 {
+		r.Log.Info("enqueue skipped (tenant busy)", "tenant", tenantID, "service", service, "active", n)
+		return nil, ErrTenantBusy
+	}
+
 	job := &db.Job{
 		TenantID:   tenantID,
 		ScheduleID: scheduleID,
@@ -104,6 +123,11 @@ func (r *Runner) Enqueue(ctx context.Context, tenantID, service, scheduleID, job
 	r.Log.Info("job queued", "id", job.ID, "tenant", tenantID, "service", service, "type", jobType)
 	go r.runJob(job.ID)
 	return job, nil
+}
+
+func (r *Runner) tenantGate(tenantID string) *sync.Mutex {
+	v, _ := r.tenantGates.LoadOrStore(tenantID, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // Cancel stops a queued or running job. Safe to call from the UI.
@@ -147,6 +171,11 @@ func (r *Runner) runJob(jobID string) {
 		r.Log.Info("job skipped (already closed)", "id", jobID, "status", job.Status)
 		return
 	}
+
+	// Exclusive per-tenant run lock (belt-and-suspenders vs. enqueue check).
+	gate := r.tenantGate(job.TenantID)
+	gate.Lock()
+	defer gate.Unlock()
 
 	ctx, cancel := context.WithCancel(base)
 	r.mu.Lock()

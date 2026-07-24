@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -20,6 +19,7 @@ type BrowseEntry struct {
 }
 
 // EnsureExtracted decrypts the snapshot into cacheDir/<snapshotID>/ once and returns that path.
+// Prefer ListBrowseSnapshot / WriteSnapshotFile for interactive browse (no full materialization).
 func (e *Engine) EnsureExtracted(ctx context.Context, repoPath, password, snapshotID, cacheRoot string) (string, error) {
 	if err := ValidateSnapshotID(snapshotID); err != nil {
 		return "", err
@@ -47,7 +47,7 @@ func (e *Engine) EnsureExtracted(ctx context.Context, repoPath, password, snapsh
 	return dest, nil
 }
 
-// ListBrowseDir lists one directory level under an extracted snapshot (relPath empty = root).
+// ListBrowseDir lists one directory level under an extracted snapshot or live sync tree.
 func ListBrowseDir(extractRoot, relPath string) ([]BrowseEntry, error) {
 	relPath = filepath.Clean("/" + relPath)
 	relPath = strings.TrimPrefix(relPath, "/")
@@ -64,6 +64,7 @@ func ListBrowseDir(extractRoot, relPath string) ([]BrowseEntry, error) {
 		return nil, err
 	}
 	var out []BrowseEntry
+	fileCount := 0
 	for _, de := range ents {
 		name := de.Name()
 		if name == ".extracted" || name == "BACKUP_META.txt" || name == "SNAPSHOT_ROOT.txt" {
@@ -79,33 +80,32 @@ func ListBrowseDir(extractRoot, relPath string) ([]BrowseEntry, error) {
 		}
 		abs := filepath.Join(dir, name)
 		if de.IsDir() {
-			if !dirHasAnyFile(abs) {
-				continue // hide empty folders (and trees with only empty dirs)
+			if dirIsVacant(abs) {
+				continue
 			}
+			out = append(out, BrowseEntry{Name: name, Path: p, IsDir: true})
+			continue
+		}
+		if info.Size() == 0 {
+			continue
 		}
 		be := BrowseEntry{
 			Name:  name,
 			Path:  p,
-			IsDir: de.IsDir(),
+			IsDir: false,
 			Size:  info.Size(),
 		}
-		if !be.IsDir {
-			if info.Size() == 0 {
-				continue
-			}
+		// Filename subject first; header peek only for smaller folders (From/To).
+		enrichBrowseEntryFromName(name, &be)
+		fileCount++
+		if fileCount <= 80 {
 			EnrichEMLEntry(abs, name, &be)
-			if be.Name == name || be.Name == "" {
-				be.Name = DisplayNameFor(abs, name)
-			}
+		} else if be.Name == name || be.Name == "" {
+			be.Name = DisplayNameFor(abs, name)
 		}
 		out = append(out, be)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].IsDir != out[j].IsDir {
-			return out[i].IsDir
-		}
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
+	sortBrowseEntries(out)
 	return out, nil
 }
 
@@ -133,7 +133,7 @@ func SearchBrowse(extractRoot, query string, limit int) ([]BrowseEntry, error) {
 		}
 		relSlash := filepath.ToSlash(rel)
 		if info.IsDir() {
-			if !dirHasAnyFile(path) {
+			if dirIsVacant(path) {
 				return filepath.SkipDir
 			}
 			if strings.Contains(strings.ToLower(relSlash), query) || strings.Contains(strings.ToLower(name), query) {
@@ -152,7 +152,13 @@ func SearchBrowse(extractRoot, query string, limit int) ([]BrowseEntry, error) {
 				IsDir: false,
 				Size:  info.Size(),
 			}
-			EnrichEMLEntry(path, name, &be)
+			enrichBrowseEntryFromName(name, &be)
+			if be.Subject == "" {
+				EnrichEMLEntry(path, name, &be)
+			} else {
+				// Filename had subject; still fill From/To cheaply only if needed for display.
+				EnrichEMLEntry(path, name, &be)
+			}
 			if be.Name == name || be.Name == "" {
 				be.Name = DisplayNameFor(path, name)
 			}
@@ -166,16 +172,11 @@ func SearchBrowse(extractRoot, query string, limit int) ([]BrowseEntry, error) {
 	if err != nil && err.Error() != "search limit reached" {
 		return out, err
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].IsDir != out[j].IsDir {
-			return out[i].IsDir
-		}
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
+	sortBrowseEntries(out)
 	return out, nil
 }
 
-// OpenBrowseFile returns an absolute path to a file inside an extracted snapshot.
+// OpenBrowseFile returns an absolute path to a file inside an extracted snapshot / live tree.
 func OpenBrowseFile(extractRoot, relPath string) (string, error) {
 	relPath = filepath.Clean("/" + relPath)
 	relPath = strings.TrimPrefix(relPath, "/")
@@ -196,29 +197,19 @@ func OpenBrowseFile(extractRoot, relPath string) (string, error) {
 	return abs, nil
 }
 
-// dirHasAnyFile reports whether root contains at least one non-empty regular file.
-func dirHasAnyFile(root string) bool {
-	found := false
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || found {
-			return err
-		}
-		name := d.Name()
+// dirIsVacant is a cheap empty-dir check: no immediate non-meta children.
+// Avoids walking multi-GB mailbox trees (previous dirHasAnyFile).
+func dirIsVacant(root string) bool {
+	ents, err := os.ReadDir(root)
+	if err != nil || len(ents) == 0 {
+		return true
+	}
+	for _, e := range ents {
+		name := e.Name()
 		if name == ".extracted" || name == "BACKUP_META.txt" || name == "SNAPSHOT_ROOT.txt" {
-			if d.IsDir() {
-				return nil
-			}
-			return nil
+			continue
 		}
-		if d.IsDir() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil || info.Size() == 0 {
-			return nil
-		}
-		found = true
-		return filepath.SkipAll
-	})
-	return found
+		return false
+	}
+	return true
 }
