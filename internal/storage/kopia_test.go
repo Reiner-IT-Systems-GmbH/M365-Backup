@@ -41,3 +41,36 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestSnapshotRecreatesMissingRepoDir(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "tenant")
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("hello again"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	eng := NewEngine()
+	pass := "test-repo-password-placeholder"
+	if err := eng.CreateRepo(t.Context(), repo, pass); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate wiped volume / deleted Kopia storage while tenant + password remain in DB.
+	if err := os.RemoveAll(RepoDataDir(repo)); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := eng.Snapshot(t.Context(), repo, pass, src, "exchange")
+	if err != nil {
+		t.Fatalf("expected auto-recreate of missing repo: %v", err)
+	}
+	if info.Files != 1 {
+		t.Fatalf("files=%d", info.Files)
+	}
+	if _, err := os.Stat(RepoDataDir(repo)); err != nil {
+		t.Fatalf("repo data dir not recreated: %v", err)
+	}
+}

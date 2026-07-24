@@ -56,6 +56,15 @@ func (e *Engine) CreateRepo(ctx context.Context, repoPath, password string) erro
 	if err := rejectLegacyRepo(repoPath); err != nil {
 		return err
 	}
+	if err := e.initializeRepo(ctx, repoPath, password); err != nil {
+		return err
+	}
+	return e.connectRepo(ctx, repoPath, password)
+}
+
+// initializeRepo creates the on-disk filesystem repository (repo/) and initializes Kopia.
+// Idempotent if the repo was already initialized.
+func (e *Engine) initializeRepo(ctx context.Context, repoPath, password string) error {
 	dataDir := RepoDataDir(repoPath)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return err
@@ -75,7 +84,7 @@ func (e *Engine) CreateRepo(ctx context.Context, repoPath, password string) erro
 			return fmt.Errorf("kopia initialize: %w", err)
 		}
 	}
-	return e.connectRepo(ctx, repoPath, password)
+	return nil
 }
 
 func (e *Engine) Snapshot(ctx context.Context, repoPath, password, sourceDir, service string) (*SnapshotInfo, error) {
@@ -213,9 +222,25 @@ func (e *Engine) ListSnapshots(ctx context.Context, repoPath, password string) (
 
 func (e *Engine) connectRepo(ctx context.Context, repoPath, password string) error {
 	dataDir := RepoDataDir(repoPath)
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		// Tenant path may still exist in the DB while the on-disk repo was deleted
+		// (volume wipe, manual cleanup, fresh host). Recreate an empty repository
+		// so backups can continue instead of failing with "no such file or directory".
+		if err := e.initializeRepo(ctx, repoPath, password); err != nil {
+			return fmt.Errorf("kopia recreate missing repo: %w", err)
+		}
+	}
 	st, err := filesystem.New(ctx, &filesystem.Options{Path: dataDir}, false)
 	if err != nil {
-		return fmt.Errorf("kopia storage open: %w", err)
+		if isMissingStoragePath(err) {
+			if ierr := e.initializeRepo(ctx, repoPath, password); ierr != nil {
+				return fmt.Errorf("kopia recreate missing repo: %w", ierr)
+			}
+			st, err = filesystem.New(ctx, &filesystem.Options{Path: dataDir}, false)
+		}
+		if err != nil {
+			return fmt.Errorf("kopia storage open: %w", err)
+		}
 	}
 	defer st.Close(ctx)
 
@@ -241,7 +266,9 @@ func (e *Engine) withRepo(ctx context.Context, repoPath, password string, fn fun
 		return err
 	}
 	cfg := RepoConfigFile(repoPath)
-	if _, err := os.Stat(cfg); err != nil {
+	_, cfgErr := os.Stat(cfg)
+	_, dataErr := os.Stat(RepoDataDir(repoPath))
+	if cfgErr != nil || os.IsNotExist(dataErr) {
 		if err := e.connectRepo(ctx, repoPath, password); err != nil {
 			return err
 		}
@@ -262,6 +289,18 @@ func (e *Engine) withRepo(ctx context.Context, repoPath, password string, fn fun
 	}
 	defer rep.Close(ctx)
 	return fn(ctx, rep)
+}
+
+func isMissingStoragePath(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such file or directory") ||
+		strings.Contains(msg, "cannot access storage path")
 }
 
 func rejectLegacyRepo(repoPath string) error {
