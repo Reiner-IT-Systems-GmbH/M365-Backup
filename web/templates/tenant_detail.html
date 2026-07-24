@@ -1,6 +1,6 @@
 {{define "tenant_detail.html"}}
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,10 +13,11 @@
   <header class="top">
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
     <nav>
-      <a href="/tenants">Tenants</a>
-      <a href="/settings">Settings</a>
-      <a href="/openapi">API</a>
-      <form method="post" action="/logout" class="inline"><button type="submit">Logout</button></form>
+      <a href="/tenants">{{.L.T "nav.tenants"}}</a>
+      <a href="/settings">{{.L.T "nav.settings"}}</a>
+      <a href="/openapi">{{.L.T "nav.api"}}</a>
+      {{template "langswitch" .}}
+      <form method="post" action="/logout" class="inline"><button type="submit">{{.L.T "nav.logout"}}</button></form>
     </nav>
   </header>
   <main class="wrap">
@@ -24,55 +25,55 @@
       <div>
         <h1>{{.Tenant.Name}}</h1>
         <p class="muted"><code>{{.Tenant.AzureTenantID}}</code> · <span class="badge {{.Tenant.Status}}">{{.Tenant.Status}}</span>
-          {{if .Usage}} · Speicher <strong>{{.Usage.TotalHuman}}</strong>{{end}}
+          {{if .Usage}} · {{.L.T "tenant.storage"}} <strong>{{.Usage.TotalHuman}}</strong>{{end}}
         </p>
       </div>
     </div>
 
     {{if eq .UsageFlash "ok"}}
-    <p class="callout">Speicher gemessen und im Cache gespeichert.</p>
+    <p class="callout">{{.L.T "tenant.flash_usage_ok"}}</p>
     {{end}}
     {{if eq .JobFlash "busy"}}
-    <p class="callout">Tenant hat bereits einen aktiven Job — neuer Start wurde übersprungen (Lock).</p>
+    <p class="callout">{{.L.T "tenant.flash_job_busy"}}</p>
     {{end}}
     {{if eq .JobFlash "queued"}}
-    <p class="callout">Backup-Job eingereiht.</p>
+    <p class="callout">{{.L.T "tenant.flash_job_queued"}}</p>
     {{end}}
 
     <div class="tenant-quicklinks">
       <details class="quick-menu">
-        <summary class="btn">Backup starten</summary>
+        <summary class="btn">{{.L.T "tenant.start_backup"}}</summary>
         <div class="quick-menu-panel">
-          <p class="muted quick-menu-hint">Sofort-Job für einen Dienst:</p>
+          <p class="muted quick-menu-hint">{{.L.T "tenant.start_backup_hint"}}</p>
           <div class="row gap wrap">
             <form method="post" action="/tenants/{{.Tenant.ID}}/backup/exchange"><button type="submit">Exchange</button></form>
             <form method="post" action="/tenants/{{.Tenant.ID}}/backup/onedrive"><button type="submit">OneDrive</button></form>
             <form method="post" action="/tenants/{{.Tenant.ID}}/backup/teams"><button type="submit">Teams</button></form>
             <form method="post" action="/tenants/{{.Tenant.ID}}/backup/sharepoint"><button type="submit">SharePoint</button></form>
-            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst"><button type="submit" class="btn secondary">PST-Export</button></form>
+            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst"><button type="submit" class="btn secondary">{{.L.T "tenant.pst_export"}}</button></form>
           </div>
         </div>
       </details>
-      <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser">Dateibrowser</a>
-      <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/restore">Restore</a>
+      <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser">{{.L.T "nav.browser"}}</a>
+      <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/restore">{{.L.T "nav.restore"}}</a>
       <form method="post" action="/tenants/{{.Tenant.ID}}/usage/refresh" class="inline">
-        <button type="submit" class="btn secondary">Speicher messen</button>
+        <button type="submit" class="btn secondary">{{.L.T "tenant.measure_storage"}}</button>
       </form>
       {{if ne .Tenant.Status "active"}}
-      <a class="btn" href="/api/consent/start/{{.Tenant.ID}}">Admin consent</a>
+      <a class="btn" href="/api/consent/start/{{.Tenant.ID}}">{{.L.T "tenant.admin_consent"}}</a>
       {{end}}
     </div>
 
-    <nav class="tenant-tabs" role="tablist" aria-label="Tenant-Bereiche">
-      <a href="#jobs" class="tenant-tab" data-tab="jobs" role="tab">Jobs</a>
-      <a href="#einstellungen" class="tenant-tab" data-tab="einstellungen" role="tab">Einstellungen</a>
-      <a href="#statistiken" class="tenant-tab" data-tab="statistiken" role="tab">Statistiken</a>
-      <a href="#snapshots" class="tenant-tab" data-tab="snapshots" role="tab">Snapshots</a>
-      <a href="#pst-exports" class="tenant-tab" data-tab="pst-exports" role="tab">PST-Exporte</a>
+    <nav class="tenant-tabs" role="tablist" aria-label="{{.L.T "tenant.tabs_aria"}}">
+      <a href="#jobs" class="tenant-tab" data-tab="jobs" role="tab">{{.L.T "tenant.tab.jobs"}}</a>
+      <a href="#einstellungen" class="tenant-tab" data-tab="einstellungen" role="tab">{{.L.T "tenant.tab.settings"}}</a>
+      <a href="#statistiken" class="tenant-tab" data-tab="statistiken" role="tab">{{.L.T "tenant.tab.stats"}}</a>
+      <a href="#snapshots" class="tenant-tab" data-tab="snapshots" role="tab">{{.L.T "tenant.tab.snapshots"}}</a>
+      <a href="#pst-exports" class="tenant-tab" data-tab="pst-exports" role="tab">{{.L.T "tenant.tab.pst"}}</a>
     </nav>
 
     <section id="jobs" class="tenant-panel" data-panel="jobs" role="tabpanel">
-      <h2 class="sr-only">Jobs</h2>
+      <h2 class="sr-only">{{.L.T "tenant.tab.jobs"}}</h2>
       <div id="jobs-list"
            hx-get="/tenants/{{.Tenant.ID}}/jobs"
            hx-trigger="every 5s"
@@ -82,19 +83,19 @@
     </section>
 
     <section id="einstellungen" class="tenant-panel" data-panel="einstellungen" role="tabpanel" hidden>
-      <h2>Schedules</h2>
-      <p class="muted">Fehlende Dienste werden automatisch mit Default-Cron angelegt. Leeres Cron-Feld beim Speichern setzt den Default. Pro Tenant läuft höchstens ein Job gleichzeitig.</p>
+      <h2>{{.L.T "tenant.schedules"}}</h2>
+      <p class="muted">{{.L.T "tenant.schedules_hint"}}</p>
       <table>
-        <thead><tr><th>Service</th><th>Cron</th><th>Enabled</th><th></th></tr></thead>
+        <thead><tr><th>{{.L.T "tenant.col.service"}}</th><th>{{.L.T "tenant.col.cron"}}</th><th>{{.L.T "tenant.col.enabled"}}</th><th></th></tr></thead>
         <tbody>
         {{range .Schedules}}
           <tr>
             <td>{{.Service}}</td>
             <td colspan="3">
               <form method="post" action="/tenants/{{$.Tenant.ID}}/schedules/{{.ID}}" class="row gap">
-                <input name="cron_expr" value="{{.CronExpr}}" placeholder="Default wenn leer">
-                <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Enabled}}checked{{end}}> enabled</label>
-                <button type="submit">Save</button>
+                <input name="cron_expr" value="{{.CronExpr}}" placeholder="{{$.L.T "tenant.cron_placeholder"}}">
+                <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Enabled}}checked{{end}}> {{$.L.T "tenant.enabled"}}</label>
+                <button type="submit">{{$.L.T "action.save"}}</button>
               </form>
             </td>
           </tr>
@@ -103,64 +104,59 @@
       </table>
 
       <div class="usage-panel" style="margin-top:1.5rem">
-        <h2>Smart Recycle (Retention)</h2>
-        <p class="muted">Wie Synology: alle Versionen in den letzten Stunden behalten, danach nur noch die neueste pro Tag / Woche / Monat / Jahr — jeweils pro Dienst.</p>
+        <h2>{{.L.T "tenant.retention_title"}}</h2>
+        <p class="muted">{{.L.T "tenant.retention_hint"}}</p>
         <form method="post" action="/tenants/{{.Tenant.ID}}/retention" class="retention-form">
-          <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Retention.Enabled}}checked{{end}}> Smart Recycle aktiv</label>
+          <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Retention.Enabled}}checked{{end}}> {{.L.T "tenant.retention_active"}}</label>
           <div class="retention-grid">
-            <label>Alle Versionen (Stunden)<input type="number" name="keep_hours" min="0" value="{{.Retention.KeepHours}}"></label>
-            <label>Täglich behalten (Tage)<input type="number" name="keep_daily" min="0" value="{{.Retention.KeepDaily}}"></label>
-            <label>Wöchentlich (Wochen)<input type="number" name="keep_weekly" min="0" value="{{.Retention.KeepWeekly}}"></label>
-            <label>Monatlich (Monate)<input type="number" name="keep_monthly" min="0" value="{{.Retention.KeepMonthly}}"></label>
-            <label>Jährlich (Jahre)<input type="number" name="keep_yearly" min="0" value="{{.Retention.KeepYearly}}"></label>
-            <label>Mindestens behalten<input type="number" name="keep_min" min="1" value="{{.Retention.KeepMin}}"></label>
-            <label>PST-Exports behalten<input type="number" name="pst_keep_runs" min="1" value="{{.Retention.PSTKeepRuns}}"></label>
+            <label>{{.L.T "tenant.keep_hours"}}<input type="number" name="keep_hours" min="0" value="{{.Retention.KeepHours}}"></label>
+            <label>{{.L.T "tenant.keep_daily"}}<input type="number" name="keep_daily" min="0" value="{{.Retention.KeepDaily}}"></label>
+            <label>{{.L.T "tenant.keep_weekly"}}<input type="number" name="keep_weekly" min="0" value="{{.Retention.KeepWeekly}}"></label>
+            <label>{{.L.T "tenant.keep_monthly"}}<input type="number" name="keep_monthly" min="0" value="{{.Retention.KeepMonthly}}"></label>
+            <label>{{.L.T "tenant.keep_yearly"}}<input type="number" name="keep_yearly" min="0" value="{{.Retention.KeepYearly}}"></label>
+            <label>{{.L.T "tenant.keep_min"}}<input type="number" name="keep_min" min="1" value="{{.Retention.KeepMin}}"></label>
+            <label>{{.L.T "tenant.pst_keep"}}<input type="number" name="pst_keep_runs" min="1" value="{{.Retention.PSTKeepRuns}}"></label>
           </div>
-          <button type="submit">Retention speichern</button>
+          <button type="submit">{{.L.T "tenant.retention_save"}}</button>
         </form>
       </div>
 
       <div class="usage-panel" style="margin-top:1.5rem">
-        <h2>Offline-Recovery (Kopia)</h2>
-        <p class="muted">Repo-Passwort offline speichern. Ohne diese Kopie reicht der <code>MASTER_KEY</code> <strong>nicht</strong>, um Snapshots mit der Kopia-CLI zu öffnen, wenn die App/DB weg ist.</p>
-        <p><a class="btn secondary" href="/tenants/{{.Tenant.ID}}/recovery">Recovery-Passwort exportieren…</a></p>
+        <h2>{{.L.T "tenant.recovery_title"}}</h2>
+        <p class="muted">{{.L.T "tenant.recovery_hint"}}</p>
+        <p><a class="btn secondary" href="/tenants/{{.Tenant.ID}}/recovery">{{.L.T "tenant.recovery_export"}}</a></p>
       </div>
     </section>
 
     <section id="statistiken" class="tenant-panel" data-panel="statistiken" role="tabpanel" hidden>
       {{if .Usage}}
       <div class="usage-panel" style="margin:0">
-        <h2>Speicherplatz</h2>
-        <p class="muted">Cache (stündlich / manuell) · Gesamt <strong>{{printf "%.2f" .Usage.TotalGB}} GB</strong> ({{.Usage.TotalHuman}})
-          {{if .UsageMeasuredAt}}{{if not .UsageMeasuredAt.IsZero}} · Stand {{fmtTime .UsageMeasuredAt "02.01.2006 15:04"}}{{end}}{{end}}
+        <h2>{{.L.T "tenant.usage_title"}}</h2>
+        <p class="muted">{{.L.T "tenant.usage_cache"}} <strong>{{printf "%.2f" .Usage.TotalGB}} GB</strong> ({{.Usage.TotalHuman}})
+          {{if .UsageMeasuredAt}}{{if not .UsageMeasuredAt.IsZero}} · {{.L.T "tenants.usage_stand"}} {{fmtTime .UsageMeasuredAt "02.01.2006 15:04"}}{{end}}{{end}}
         </p>
-        <p class="callout usage-explain">
-          <strong>Gesamt</strong> = echte Belegung auf der Platte.
-          <strong>Live-Sync</strong> ist die Arbeitskopie für inkrementelle Graph-Deltas (aktueller Stand).
-          <strong>Snapshots</strong> sind die verschlüsselte Historie in Kopia — unveränderte Daten werden dedupliziert, deshalb wächst die Platte nicht mit jedem Lauf um die volle Mailbox-Größe.
-          Live-Sync und Snapshots liegen nebeneinander; deshalb ist Gesamt ≈ Sync + Snapshots, nicht „nur Snapshots“.
-        </p>
+        <p class="callout usage-explain">{{.L.T "tenant.usage_explain"}}</p>
         <div class="usage-grid">
-          <div class="usage-stat"><span class="usage-val">{{printf "%.2f" .Usage.TotalGB}} GB</span><span class="muted">Gesamt (Platte)</span></div>
-          <div class="usage-stat"><span class="usage-val">{{.Usage.SyncHuman}}</span><span class="muted">Live-Sync (Arbeitskopie)</span></div>
-          <div class="usage-stat"><span class="usage-val">{{.Usage.SnapshotsHuman}}</span><span class="muted">Snapshots (Kopia, dedup)</span></div>
+          <div class="usage-stat"><span class="usage-val">{{printf "%.2f" .Usage.TotalGB}} GB</span><span class="muted">{{.L.T "tenant.usage_total_disk"}}</span></div>
+          <div class="usage-stat"><span class="usage-val">{{.Usage.SyncHuman}}</span><span class="muted">{{.L.T "tenant.usage_live_sync"}}</span></div>
+          <div class="usage-stat"><span class="usage-val">{{.Usage.SnapshotsHuman}}</span><span class="muted">{{.L.T "tenant.usage_snapshots"}}</span></div>
           {{if gt .Usage.ExportsBytes 0}}
-          <div class="usage-stat"><span class="usage-val">{{.Usage.ExportsHuman}}</span><span class="muted">PST-Exports</span></div>
+          <div class="usage-stat"><span class="usage-val">{{.Usage.ExportsHuman}}</span><span class="muted">{{.L.T "tenant.usage_pst"}}</span></div>
           {{end}}
           {{if .Usage.LargestService}}
-          <div class="usage-stat highlight"><span class="usage-val">{{.Usage.LargestService}}</span><span class="muted">Meiste Daten (Dienst)</span></div>
+          <div class="usage-stat highlight"><span class="usage-val">{{.Usage.LargestService}}</span><span class="muted">{{.L.T "tenant.usage_largest_svc"}}</span></div>
           {{end}}
           {{if .Usage.LargestUser}}
-          <div class="usage-stat highlight"><span class="usage-val usage-val-sm">{{.Usage.LargestUser}}</span><span class="muted">Meiste Daten (User)</span></div>
+          <div class="usage-stat highlight"><span class="usage-val usage-val-sm">{{.Usage.LargestUser}}</span><span class="muted">{{.L.T "tenant.usage_largest_user"}}</span></div>
           {{end}}
         </div>
 
         <div class="usage-split">
           <div>
-            <h3>Nach Dienst</h3>
-            <p class="muted" style="margin:0 0 .5rem;font-size:.85rem">Spalte „Snaps (logisch)“ summiert die Inhaltsgröße je Snapshot — nicht den Plattenverbrauch. Durch Dedup ist die echte Snapshot-Belegung oben unter „Snapshots“.</p>
+            <h3>{{.L.T "tenant.by_service"}}</h3>
+            <p class="muted" style="margin:0 0 .5rem;font-size:.85rem">{{.L.T "tenant.by_service_hint"}}</p>
             <table class="compact">
-              <thead><tr><th>Dienst</th><th>Sync</th><th>Snaps (logisch)</th><th>Σ logisch</th></tr></thead>
+              <thead><tr><th>{{.L.T "tenant.col.service"}}</th><th>{{.L.T "tenant.col.sync"}}</th><th>{{.L.T "tenant.col.snaps_logical"}}</th><th>{{.L.T "tenant.col.sum_logical"}}</th></tr></thead>
               <tbody>
               {{range .Usage.ByService}}
                 {{if gt .TotalBytes 0}}
@@ -176,10 +172,10 @@
             </table>
           </div>
           <div>
-            <h3>Top User (Live-Sync)</h3>
+            <h3>{{.L.T "tenant.top_users"}}</h3>
             {{if .Usage.TopUsers}}
             <table class="compact">
-              <thead><tr><th>User</th><th>Dienst</th><th>Größe</th><th>GB</th></tr></thead>
+              <thead><tr><th>{{.L.T "tenant.col.user"}}</th><th>{{.L.T "tenant.col.service"}}</th><th>{{.L.T "tenant.col.size"}}</th><th>{{.L.T "tenant.col.gb"}}</th></tr></thead>
               <tbody>
               {{range .Usage.TopUsers}}
                 <tr>
@@ -192,41 +188,41 @@
               </tbody>
             </table>
             {{else}}
-            <p class="muted">Noch keine Sync-Daten pro User.</p>
+            <p class="muted">{{.L.T "tenant.no_user_sync"}}</p>
             {{end}}
           </div>
         </div>
       </div>
       {{else}}
       <div class="usage-panel" style="margin:0">
-        <h2>Speicherplatz</h2>
-        <p class="muted">Noch kein Cache. Mit „Speicher messen“ anstoßen oder den stündlichen Cron abwarten.</p>
+        <h2>{{.L.T "tenant.usage_title"}}</h2>
+        <p class="muted">{{.L.T "tenant.usage_empty"}}</p>
       </div>
       {{end}}
     </section>
 
     <section id="snapshots" class="tenant-panel" data-panel="snapshots" role="tabpanel" hidden>
-      <h2 class="sr-only">Snapshots</h2>
-      <p class="muted">Punkt-in-Zeit-Kopien (Kopia, dedupliziert). Browse ohne Full-Extract im <a href="/tenants/{{.Tenant.ID}}/browser">Dateibrowser</a> — für den aktuellen Stand „Live-Sync“ wählen.</p>
+      <h2 class="sr-only">{{.L.T "tenant.tab.snapshots"}}</h2>
+      <p class="muted">{{.L.T "tenant.snapshots_hint"}}</p>
       <div id="snapshots-list"
            hx-get="/tenants/{{.Tenant.ID}}/snapshots"
            hx-trigger="intersect once"
            hx-swap="innerHTML">
-        <p class="muted">Lade Snapshots…</p>
+        <p class="muted">{{.L.T "tenant.snapshots_loading"}}</p>
       </div>
     </section>
 
     <section id="pst-exports" class="tenant-panel" data-panel="pst-exports" role="tabpanel" hidden>
-      <h2 class="sr-only">PST-Exporte</h2>
-      <p class="muted">Postfächer aus dem Exchange Live-Sync als ZIP (EML-Ordnerstruktur) nach <code>data/…/exports/pst/</code>. Läuft als Job mit Status im Panel. (Binäres Outlook-.pst folgt später — Open-Source-Writer fehlt.)</p>
+      <h2 class="sr-only">{{.L.T "tenant.tab.pst"}}</h2>
+      <p class="muted">{{.L.T "tenant.pst_hint"}}</p>
       <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst" class="inline" style="margin-bottom:.75rem">
-        <button type="submit">Export jetzt starten</button>
+        <button type="submit">{{.L.T "tenant.pst_start"}}</button>
       </form>
       <div id="pst-exports-list"
            hx-get="/tenants/{{.Tenant.ID}}/pst-exports"
            hx-trigger="intersect once"
            hx-swap="innerHTML">
-        <p class="muted">Lade Exporte…</p>
+        <p class="muted">{{.L.T "tenant.pst_loading"}}</p>
       </div>
     </section>
   </main>
@@ -250,7 +246,6 @@
       activate(id);
     }
     window.addEventListener("hashchange", fromHash);
-    // After HTMX (defer) so intersect observers are armed before we unhide a tab.
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", fromHash);
     } else {

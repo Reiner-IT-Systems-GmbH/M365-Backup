@@ -1,10 +1,10 @@
 {{define "settings.html"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Settings · M365 Backup</title>
+  <title>{{.L.T "nav.settings"}} · M365 Backup</title>
   <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -12,22 +12,23 @@
   <header class="top">
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
     <nav>
-      <a href="/tenants">Tenants</a>
-      <a href="/settings">Settings</a>
-      <a href="/openapi">API</a>
+      <a href="/tenants">{{.L.T "nav.tenants"}}</a>
+      <a href="/settings">{{.L.T "nav.settings"}}</a>
+      <a href="/openapi">{{.L.T "nav.api"}}</a>
+      {{template "langswitch" .}}
     </nav>
   </header>
   <main class="wrap narrow">
-    <h1>Notifications</h1>
+    <h1>{{.L.T "settings.title"}}</h1>
     {{if .Settings}}
     <ul class="plain">
       {{range .Settings}}
-      <li><strong>{{.Channel}}</strong> · enabled={{.Enabled}} · on={{.NotifyOn}}</li>
+      <li><strong>{{.Channel}}</strong> · {{$.L.T "settings.enabled"}}={{.Enabled}} · {{$.L.T "settings.on"}}={{.NotifyOn}}</li>
       {{end}}
     </ul>
     {{end}}
     <form method="post" action="/settings/notifications" class="stack">
-      <label>Channel
+      <label>{{.L.T "settings.channel"}}
         <select name="channel">
           <option value="smtp">smtp</option>
           <option value="webhook">webhook</option>
@@ -36,22 +37,22 @@
           <option value="pushover">pushover</option>
         </select>
       </label>
-      <label>Notify on (comma-separated)
+      <label>{{.L.T "settings.notify_on"}}
         <input name="notify_on" value="job_error,key_expiry_30d,key_expiry_7d,key_expired,restore_done">
       </label>
       <fieldset>
-        <legend>SMTP</legend>
-        <label>Host <input name="smtp_host"></label>
-        <label>Port <input name="smtp_port" value="587"></label>
-        <label>Username <input name="smtp_username"></label>
-        <label>Password <input name="smtp_password" type="password" autocomplete="off"></label>
-        <label>From <input name="smtp_from"></label>
-        <label>To (comma-separated) <input name="smtp_to"></label>
+        <legend>{{.L.T "settings.smtp"}}</legend>
+        <label>{{.L.T "settings.host"}} <input name="smtp_host"></label>
+        <label>{{.L.T "settings.port"}} <input name="smtp_port" value="587"></label>
+        <label>{{.L.T "settings.username"}} <input name="smtp_username"></label>
+        <label>{{.L.T "settings.password"}} <input name="smtp_password" type="password" autocomplete="off"></label>
+        <label>{{.L.T "settings.from"}} <input name="smtp_from"></label>
+        <label>{{.L.T "settings.to"}} <input name="smtp_to"></label>
       </fieldset>
       <fieldset>
-        <legend>Webhook</legend>
-        <label>URL <input name="webhook_url" placeholder="https://..."></label>
-        <label>Format
+        <legend>{{.L.T "settings.webhook"}}</legend>
+        <label>{{.L.T "settings.url"}} <input name="webhook_url" placeholder="https://..."></label>
+        <label>{{.L.T "settings.format"}}
           <select name="format">
             <option value="json">json</option>
             <option value="slack">slack</option>
@@ -60,13 +61,13 @@
         </label>
       </fieldset>
       <fieldset>
-        <legend>Pushover</legend>
-        <p class="muted">Keys from <a href="https://pushover.net" target="_blank" rel="noopener">pushover.net</a>. Priority 2 (Emergency) retries until acknowledged.</p>
-        <label>User Key <input name="pushover_user_key" autocomplete="off" placeholder="30-char user/group key"></label>
-        <label>Application Token <input name="pushover_app_token" type="password" autocomplete="off" placeholder="30-char app token"></label>
-        <label>Device (optional) <input name="pushover_device" placeholder="all devices if empty"></label>
-        <label>Message Title <input name="pushover_title" placeholder="M365 Backup" value="M365 Backup"></label>
-        <label>Priority
+        <legend>{{.L.T "settings.pushover"}}</legend>
+        <p class="muted">{{.L.T "settings.pushover_hint"}} <a href="https://pushover.net" target="_blank" rel="noopener">pushover.net</a></p>
+        <label>{{.L.T "settings.user_key"}} <input name="pushover_user_key" autocomplete="off" placeholder="30-char user/group key"></label>
+        <label>{{.L.T "settings.app_token"}} <input name="pushover_app_token" type="password" autocomplete="off" placeholder="30-char app token"></label>
+        <label>{{.L.T "settings.device"}} <input name="pushover_device" placeholder="all devices if empty"></label>
+        <label>{{.L.T "settings.msg_title"}} <input name="pushover_title" placeholder="M365 Backup" value="M365 Backup"></label>
+        <label>{{.L.T "settings.priority"}}
           <select name="pushover_priority">
             <option value="-2">-2 Lowest</option>
             <option value="-1">-1 Low</option>
@@ -75,7 +76,7 @@
             <option value="2">2 Emergency</option>
           </select>
         </label>
-        <label>Sound — Alert (errors / warnings / key expiry)
+        <label>{{.L.T "settings.sound_alert"}}
           <select name="pushover_sound">
             <option value="pushover">pushover (default)</option>
             <option value="bike">bike</option>
@@ -102,7 +103,7 @@
             <option value="none">none</option>
           </select>
         </label>
-        <label>Sound — OK (success / restore)
+        <label>{{.L.T "settings.sound_ok"}}
           <select name="pushover_sound_ok">
             <option value="pushover">pushover (default)</option>
             <option value="bike">bike</option>
@@ -129,11 +130,11 @@
             <option value="none">none</option>
           </select>
         </label>
-        <label>Message TTL (seconds, optional) <input name="pushover_ttl" type="number" min="0" placeholder="0 = no TTL"></label>
-        <label>Emergency retry (seconds, min 30) <input name="pushover_retry" type="number" min="30" value="30"></label>
-        <label>Emergency expire (seconds, max 86400) <input name="pushover_expire" type="number" min="30" max="86400" value="3600"></label>
+        <label>{{.L.T "settings.ttl"}} <input name="pushover_ttl" type="number" min="0" placeholder="0 = no TTL"></label>
+        <label>{{.L.T "settings.retry"}} <input name="pushover_retry" type="number" min="30" value="30"></label>
+        <label>{{.L.T "settings.expire"}} <input name="pushover_expire" type="number" min="30" max="86400" value="3600"></label>
       </fieldset>
-      <button type="submit">Save channel</button>
+      <button type="submit">{{.L.T "settings.save_channel"}}</button>
     </form>
   </main>
 </body>

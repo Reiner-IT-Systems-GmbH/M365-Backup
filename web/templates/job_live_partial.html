@@ -8,31 +8,32 @@
      {{end}}>
   {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
   <form method="post" action="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/cancel" class="inline"
-        onsubmit="return confirm('Backup wirklich stoppen?');">
-    <button type="submit" class="btn-stop">Backup stoppen</button>
+        data-confirm="{{.L.T "jobs.confirm_stop"}}"
+        onsubmit="return confirm(this.dataset.confirm);">
+    <button type="submit" class="btn-stop">{{.L.T "jobs.stop_backup"}}</button>
   </form>
   {{end}}
 
   <section class="progress-panel {{.Job.Status}}">
     <div class="progress-head">
       <strong class="progress-pct">{{.Job.ProgressPct}}%</strong>
-      <span class="progress-now">{{if .Job.ProgressMessage}}{{.Job.ProgressMessage}}{{else if or (eq .Job.Status "running") (eq .Job.Status "queued")}}Warteschlange / Start…{{else}}—{{end}}</span>
+      <span class="progress-now">{{if .Job.ProgressMessage}}{{.Job.ProgressMessage}}{{else if or (eq .Job.Status "running") (eq .Job.Status "queued")}}{{.L.T "jobs.queue_start"}}{{else}}—{{end}}</span>
     </div>
     <div class="progress-track" role="progressbar" aria-valuenow="{{.Job.ProgressPct}}" aria-valuemin="0" aria-valuemax="100">
       <div class="progress-fill" style="width: {{.Job.ProgressPct}}%"></div>
     </div>
     {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
-    <p class="muted progress-hint">Live · Items {{.Job.ItemsNew}} · {{.Job.BytesTransferred}} bytes</p>
+    <p class="muted progress-hint">{{.L.T "jobs.live_items"}} {{.Job.ItemsNew}} · {{.Job.BytesTransferred}} {{.L.T "jobs.bytes"}}</p>
     {{end}}
   </section>
 
   {{if .Job.ErrorMessage}}
-  <p class="callout"><strong>Summary:</strong> {{.Job.ErrorMessage}}</p>
+  <p class="callout"><strong>{{.L.T "jobs.summary"}}:</strong> {{.Job.ErrorMessage}}</p>
   {{end}}
 
   <section class="guide-panel">
-    <h2>Detail-Log</h2>
-    <p class="muted">Nur Info/Warn/Error — neueste Einträge unten.</p>
+    <h2>{{.L.T "jobs.detail_log"}}</h2>
+    <p class="muted">{{.L.T "jobs.detail_hint"}}</p>
     {{if .Logs}}
     <div class="log-view" id="job-log-view">
       {{range .Logs}}
@@ -46,7 +47,7 @@
       <div id="job-log-anchor"></div>
     </div>
     {{else}}
-    <p class="muted">Kein Detail-Log (Job vor Einführung der job_logs-Tabelle, oder noch leer).</p>
+    <p class="muted">{{.L.T "jobs.no_detail_log"}}</p>
     {{end}}
   </section>
 </div>

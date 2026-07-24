@@ -34,6 +34,16 @@ a:hover { text-decoration: underline; }
 .brand { font-weight: 700; letter-spacing: .02em; color: var(--text); font-size: 1.1rem; display: inline-flex; align-items: center; gap: .5rem; }
 .brand img { height: 28px; width: auto; border-radius: 4px; }
 nav { display: flex; gap: 1rem; align-items: center; }
+.lang-switch {
+  display: inline-flex; gap: .15rem; align-items: center;
+  margin-left: .25rem; padding: .15rem; border: 1px solid var(--border); border-radius: 8px;
+  font-size: .8rem; letter-spacing: .02em;
+}
+.lang-switch a {
+  padding: .2rem .45rem; border-radius: 6px; color: var(--muted); text-decoration: none;
+}
+.lang-switch a:hover { color: var(--text); }
+.lang-switch a.active { background: var(--accent); color: #fff; }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
 .wrap.narrow { max-width: 640px; }
 .wrap.guide { max-width: 860px; }

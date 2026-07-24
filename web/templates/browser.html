@@ -1,10 +1,10 @@
 {{define "browser.html"}}
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dateibrowser · {{.Tenant.Name}}</title>
+  <title>{{.L.T "browser.title"}} · {{.Tenant.Name}}</title>
   <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -13,20 +13,21 @@
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
     <nav>
       <a href="/tenants/{{.Tenant.ID}}">← {{.Tenant.Name}}</a>
-      <a href="/tenants/{{.Tenant.ID}}/browser">Dateibrowser</a>
-      <a href="/tenants/{{.Tenant.ID}}/restore">Restore</a>
+      <a href="/tenants/{{.Tenant.ID}}/browser">{{.L.T "nav.browser"}}</a>
+      <a href="/tenants/{{.Tenant.ID}}/restore">{{.L.T "nav.restore"}}</a>
+      {{template "langswitch" .}}
     </nav>
   </header>
   <main class="wrap">
-    <h1>Dateibrowser</h1>
-    <p class="muted">Dienst wählen → Version (Snapshot) wählen → Dateien durchsuchen oder herunterladen.
-      {{if .Usage}} · Speicher gesamt <strong>{{.Usage.TotalHuman}}</strong>
-        (Snapshots {{.Usage.SnapshotsHuman}}, Sync {{.Usage.SyncHuman}})
+    <h1>{{.L.T "browser.title"}}</h1>
+    <p class="muted">{{.L.T "browser.hint"}}
+      {{if .Usage}} · {{.L.T "browser.storage_total"}} <strong>{{.Usage.TotalHuman}}</strong>
+        ({{.L.T "tenant.snapshots"}} {{.Usage.SnapshotsHuman}}, Sync {{.Usage.SyncHuman}})
       {{end}}
     </p>
 
     <section class="browser-services">
-      <h2>Dienst</h2>
+      <h2>{{.L.T "browser.service"}}</h2>
       <div class="service-tabs">
         {{range .Services}}
         <a class="service-tab {{if eq $.Service .}}active{{end}}"
@@ -37,23 +38,23 @@
 
     {{if .Service}}
     <section class="browser-versions">
-      <h2>Versionen · {{.Service}}</h2>
+      <h2>{{.L.T "browser.versions"}} · {{.Service}}</h2>
       {{if .HasLive}}
       <a class="version-card {{if eq .Version "live"}}active{{end}}"
          href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version=live">
-        <strong>Live-Sync (aktuell)</strong>
-        <span class="muted">Persistenter Stand nach letztem Backup — noch kein Snapshot</span>
+        <strong>{{.L.T "browser.live_title"}}</strong>
+        <span class="muted">{{.L.T "browser.live_hint"}}</span>
       </a>
       {{end}}
       {{range .Versions}}
       <a class="version-card {{if eq $.Version .ID}}active{{end}}"
          href="/tenants/{{$.Tenant.ID}}/browser?service={{$.Service}}&amp;version={{.ID}}">
         <strong>{{fmtTime .CreatedAt "02.01.2006 15:04"}}</strong>
-        <span class="muted"><code>{{.ID}}</code> · {{.Files}} Dateien · {{.BytesHuman}}</span>
+        <span class="muted"><code>{{.ID}}</code> · {{.Files}} {{$.L.T "browser.files_count"}} · {{.BytesHuman}}</span>
       </a>
       {{else}}
         {{if not .HasLive}}
-        <p class="muted">Noch keine Snapshots für {{.Service}}.</p>
+        <p class="muted">{{.L.T "browser.no_snapshots"}} {{.Service}}.</p>
         {{end}}
       {{end}}
     </section>
@@ -61,7 +62,7 @@
 
     {{if and .Service .Version}}
     <section class="browser-files">
-      <h2>Dateien
+      <h2>{{.L.T "browser.files"}}
         {{if eq .Version "live"}}
         <span class="badge running">live</span>
         {{else}}
@@ -73,10 +74,10 @@
         <input type="hidden" name="service" value="{{.Service}}">
         <input type="hidden" name="version" value="{{.Version}}">
         {{if .Path}}<input type="hidden" name="path" value="{{.Path}}">{{end}}
-        <input type="search" name="q" value="{{.Query}}" placeholder="Suche: Betreff, Von, An, UPN …" style="flex:1;min-width:200px">
-        <button type="submit">Suchen</button>
+        <input type="search" name="q" value="{{.Query}}" placeholder="{{.L.T "browser.search_ph"}}" style="flex:1;min-width:200px">
+        <button type="submit">{{.L.T "action.search"}}</button>
         {{if .Query}}
-        <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Path}}&amp;path={{.Path}}{{end}}">Reset</a>
+        <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Path}}&amp;path={{.Path}}{{end}}">{{.L.T "action.reset"}}</a>
         {{end}}
       </form>
 
@@ -87,22 +88,22 @@
       </p>
       {{if or .Path .Parent}}
       <p>
-        <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Parent}}&amp;path={{.Parent}}{{end}}">↑ Parent</a>
+        <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Parent}}&amp;path={{.Parent}}{{end}}">{{.L.T "browser.parent"}}</a>
       </p>
       {{end}}
       {{else}}
-      <p class="muted">Suchergebnisse für <strong>{{.Query}}</strong> (max. 500)</p>
+      <p class="muted">{{.L.T "browser.search_results"}} <strong>{{.Query}}</strong> {{.L.T "browser.max_500"}}</p>
       {{end}}
 
       <table>
         <thead>
           <tr>
-            <th>Betreff / Name</th>
+            <th>{{.L.T "browser.col.subject"}}</th>
             {{if eq .Service "exchange"}}
-            <th>Von</th>
-            <th>An</th>
+            <th>{{.L.T "browser.col.from"}}</th>
+            <th>{{.L.T "browser.col.to"}}</th>
             {{end}}
-            <th>Size</th>
+            <th>{{.L.T "browser.col.size"}}</th>
             <th></th>
           </tr>
         </thead>
@@ -123,22 +124,22 @@
             <td>{{if not .IsDir}}{{.Size}}{{end}}</td>
             <td>
               {{if not .IsDir}}
-              <a class="btn secondary btn-sm" href="/tenants/{{$.Tenant.ID}}/browser/file?service={{$.Service}}&amp;version={{$.Version}}&amp;path={{.Path}}">Download</a>
+              <a class="btn secondary btn-sm" href="/tenants/{{$.Tenant.ID}}/browser/file?service={{$.Service}}&amp;version={{$.Version}}&amp;path={{.Path}}">{{$.L.T "action.download"}}</a>
               {{end}}
             </td>
           </tr>
         {{else}}
           <tr><td colspan="{{if eq .Service "exchange"}}5{{else}}3{{end}}" class="muted">
-            {{if .Query}}Keine Treffer.{{else}}Keine Dateien in dieser Version.{{end}}
+            {{if .Query}}{{.L.T "browser.no_hits"}}{{else}}{{.L.T "browser.no_files"}}{{end}}
           </td></tr>
         {{end}}
         </tbody>
       </table>
     </section>
     {{else if .Service}}
-    <p class="callout">Oben eine Version wählen, um Dateien zu sehen.</p>
+    <p class="callout">{{.L.T "browser.pick_version"}}</p>
     {{else}}
-    <p class="callout">Oben einen Dienst wählen.</p>
+    <p class="callout">{{.L.T "browser.pick_service"}}</p>
     {{end}}
   </main>
 </body>

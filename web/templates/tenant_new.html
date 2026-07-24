@@ -1,22 +1,137 @@
 {{define "tenant_new.html"}}
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tenant anlegen · M365 Backup</title>
+  <title>{{.L.T "tenant_new.title"}} · M365 Backup</title>
   <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="top">
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
-    <nav><a href="/tenants">Tenants</a></nav>
+    <nav>
+      <a href="/tenants">{{.L.T "nav.tenants"}}</a>
+      {{template "langswitch" .}}
+    </nav>
   </header>
   <main class="wrap guide">
-    <h1>Tenant anlegen</h1>
-    <p class="muted">Zuerst die App-Registrierung im Microsoft-Tenant vorbereiten, dann die Werte hier eintragen und Admin Consent erteilen.</p>
+    <h1>{{.L.T "tenant_new.title"}}</h1>
+    <p class="muted">{{.L.T "tenant_new.intro"}}</p>
 
+    {{if eq .Lang "en"}}
+    <section class="guide-panel">
+      <h2>1. App registration in Entra Admin Center</h2>
+      <ol class="steps">
+        <li>
+          Open
+          <a href="https://entra.microsoft.com/" target="_blank" rel="noopener">entra.microsoft.com</a>
+          (or <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps" target="_blank" rel="noopener">Azure Portal → App registrations</a>)
+          and sign in as <strong>Global Administrator</strong> or <strong>Application Administrator</strong> in the <em>customer tenant</em>.
+        </li>
+        <li>
+          Go to <strong>Identity → Applications → App registrations → New registration</strong>.
+        </li>
+        <li>
+          Name e.g. <code>M365 Backup</code>. Under <strong>Supported account types</strong>:
+          <em>Accounts in this organizational directory only</em> (Single tenant).
+          Leave Redirect URI empty for now → <strong>Register</strong>.
+        </li>
+        <li>
+          On the overview note:
+          <ul>
+            <li><strong>Application (client) ID</strong> → field below</li>
+            <li><strong>Directory (tenant) ID</strong> → field <em>Azure Tenant ID</em></li>
+          </ul>
+        </li>
+      </ol>
+    </section>
+
+    <section class="guide-panel">
+      <h2>2. Create a client secret</h2>
+      <ol class="steps">
+        <li><strong>Certificates &amp; secrets → Client secrets → New client secret</strong>.</li>
+        <li>Description e.g. <code>m365backup</code>, validity preferably 12–24 months.</li>
+        <li>
+          Copy the <strong>Value</strong> immediately (shown only once) → field <em>Client secret</em>.
+          Expiry → field <em>Secret expires</em>.
+        </li>
+      </ol>
+      <p class="callout">
+        <strong>Token renewal:</strong> Access tokens (OAuth) are renewed automatically via client credentials.
+        The <em>client secret</em> itself is currently <strong>not</strong> rotated automatically — the app warns before expiry (30/7 days).
+        Create a new secret before expiry and update it here.
+      </p>
+    </section>
+
+    <section class="guide-panel">
+      <h2>3. API permissions (Application permissions)</h2>
+      <p>Under <strong>API permissions → Add a permission → Microsoft Graph → Application permissions</strong> (not Delegated):</p>
+      <div class="table-scroll">
+        <table class="perm-table">
+          <thead>
+            <tr><th>Permission</th><th>Used for</th><th>Required</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>User.Read.All</code></td><td>User list for Mail/OneDrive</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Mail.Read</code></td><td>Exchange user + shared mailboxes (EML)</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Files.Read.All</code></td><td>OneDrive + SharePoint files</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Sites.Read.All</code></td><td>SharePoint sites</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Team.ReadBasic.All</code></td><td>List teams (names/IDs)</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>ChannelMessage.Read.All</code></td><td>Teams channel messages</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Chat.Read.All</code></td><td>Teams 1:1 / group chats</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Application.Read.All</code></td><td>Check secret expiry</td><td>{{.L.T "common.recommended"}}</td></tr>
+            <tr><td><code>Mail.ReadWrite</code></td><td>Mail restore (optional)</td><td>{{.L.T "common.optional"}}</td></tr>
+            <tr><td><code>Files.ReadWrite.All</code></td><td>File restore via Graph</td><td>{{.L.T "common.optional"}}</td></tr>
+            <tr><td><code>Calendars.Read</code> / <code>Contacts.Read</code></td><td>Calendar/contacts (later)</td><td>{{.L.T "common.optional"}}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">After adding: click <strong>Grant admin consent for &lt;Tenant&gt;</strong> in the portal <em>or</em> use the “Admin consent” button on the tenant after saving here.</p>
+    </section>
+
+    <section class="guide-panel">
+      <h2>4. Redirect URI for admin consent</h2>
+      <ol class="steps">
+        <li><strong>Authentication → Add a platform → Web</strong>.</li>
+        <li>
+          Enter the redirect URI (exact, including https):
+          <code id="redirect-uri">{{.RedirectURI}}</code>
+          <button type="button" class="btn secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('redirect-uri').textContent)">{{.L.T "tenant_new.copy"}}</button>
+        </li>
+        <li>Save. No further redirects needed.</li>
+      </ol>
+    </section>
+
+    <section class="guide-panel">
+      <h2>5. Enter values here</h2>
+      <form method="post" action="/tenants" class="stack form-panel">
+        <label>{{.L.T "tenant_new.name"}}
+          <input name="name" required placeholder="Acme Ltd">
+        </label>
+        <label>{{.L.T "tenant_new.azure_id"}}
+          <input name="azure_tenant_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" pattern="[0-9a-fA-F-]{36}">
+        </label>
+        <label>{{.L.T "tenant_new.client_id"}}
+          <input name="client_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </label>
+        <label>{{.L.T "tenant_new.client_secret"}}
+          <input name="client_secret" type="password" required autocomplete="off">
+        </label>
+        <label>{{.L.T "tenant_new.secret_expires"}}
+          <input name="secret_expires" type="date">
+        </label>
+        <button type="submit">{{.L.T "tenant_new.submit"}}</button>
+      </form>
+      <ol class="steps" start="6">
+        <li>After creating: open the tenant → <strong>Admin consent</strong> → customer confirms the permissions.</li>
+        <li>Status becomes <span class="badge active">active</span>; first backup jobs start automatically.</li>
+      </ol>
+      <p class="muted">Secrets are encrypted with <code>MASTER_KEY</code> in the database — never commit plaintext to git.</p>
+    </section>
+
+    {{else}}
     <section class="guide-panel">
       <h2>1. App-Registrierung im Entra Admin Center</h2>
       <ol class="steps">
@@ -70,17 +185,17 @@
             <tr><th>Permission</th><th>Wofür</th><th>Pflicht</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>User.Read.All</code></td><td>Benutzerliste für Mail/OneDrive</td><td>Ja</td></tr>
-            <tr><td><code>Mail.Read</code></td><td>Exchange User- + Shared-Postfächer (EML)</td><td>Ja</td></tr>
-            <tr><td><code>Files.Read.All</code></td><td>OneDrive + SharePoint-Dateien</td><td>Ja</td></tr>
-            <tr><td><code>Sites.Read.All</code></td><td>SharePoint-Sites</td><td>Ja</td></tr>
-            <tr><td><code>Team.ReadBasic.All</code></td><td>Teams auflisten (Namen/IDs)</td><td>Ja</td></tr>
-            <tr><td><code>ChannelMessage.Read.All</code></td><td>Teams-Kanalnachrichten</td><td>Ja</td></tr>
-            <tr><td><code>Chat.Read.All</code></td><td>Teams 1:1 / Gruppenchats</td><td>Ja</td></tr>
-            <tr><td><code>Application.Read.All</code></td><td>Secret-Ablauf prüfen</td><td>Empfohlen</td></tr>
-            <tr><td><code>Mail.ReadWrite</code></td><td>Mail-Restore (optional)</td><td>Optional</td></tr>
-            <tr><td><code>Files.ReadWrite.All</code></td><td>Datei-Restore via Graph</td><td>Optional</td></tr>
-            <tr><td><code>Calendars.Read</code> / <code>Contacts.Read</code></td><td>Kalender/Kontakte (später)</td><td>Optional</td></tr>
+            <tr><td><code>User.Read.All</code></td><td>Benutzerliste für Mail/OneDrive</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Mail.Read</code></td><td>Exchange User- + Shared-Postfächer (EML)</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Files.Read.All</code></td><td>OneDrive + SharePoint-Dateien</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Sites.Read.All</code></td><td>SharePoint-Sites</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Team.ReadBasic.All</code></td><td>Teams auflisten (Namen/IDs)</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>ChannelMessage.Read.All</code></td><td>Teams-Kanalnachrichten</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Chat.Read.All</code></td><td>Teams 1:1 / Gruppenchats</td><td>{{.L.T "common.yes"}}</td></tr>
+            <tr><td><code>Application.Read.All</code></td><td>Secret-Ablauf prüfen</td><td>{{.L.T "common.recommended"}}</td></tr>
+            <tr><td><code>Mail.ReadWrite</code></td><td>Mail-Restore (optional)</td><td>{{.L.T "common.optional"}}</td></tr>
+            <tr><td><code>Files.ReadWrite.All</code></td><td>Datei-Restore via Graph</td><td>{{.L.T "common.optional"}}</td></tr>
+            <tr><td><code>Calendars.Read</code> / <code>Contacts.Read</code></td><td>Kalender/Kontakte (später)</td><td>{{.L.T "common.optional"}}</td></tr>
           </tbody>
         </table>
       </div>
@@ -94,7 +209,7 @@
         <li>
           Redirect URI eintragen (exakt, inkl. https):
           <code id="redirect-uri">{{.RedirectURI}}</code>
-          <button type="button" class="btn secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('redirect-uri').textContent)">Kopieren</button>
+          <button type="button" class="btn secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('redirect-uri').textContent)">{{.L.T "tenant_new.copy"}}</button>
         </li>
         <li>Speichern. Keine weiteren Redirects nötig.</li>
       </ol>
@@ -103,22 +218,22 @@
     <section class="guide-panel">
       <h2>5. Werte hier eintragen</h2>
       <form method="post" action="/tenants" class="stack form-panel">
-        <label>Anzeigename (Firma)
+        <label>{{.L.T "tenant_new.name"}}
           <input name="name" required placeholder="Muster GmbH">
         </label>
-        <label>Azure Tenant ID (Directory ID)
+        <label>{{.L.T "tenant_new.azure_id"}}
           <input name="azure_tenant_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" pattern="[0-9a-fA-F-]{36}">
         </label>
-        <label>Application (client) ID
+        <label>{{.L.T "tenant_new.client_id"}}
           <input name="client_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
         </label>
-        <label>Client secret (Value)
+        <label>{{.L.T "tenant_new.client_secret"}}
           <input name="client_secret" type="password" required autocomplete="off">
         </label>
-        <label>Secret expires (Ablaufdatum aus dem Portal)
+        <label>{{.L.T "tenant_new.secret_expires"}}
           <input name="secret_expires" type="date">
         </label>
-        <button type="submit">Tenant anlegen</button>
+        <button type="submit">{{.L.T "tenant_new.submit"}}</button>
       </form>
       <ol class="steps" start="6">
         <li>Nach dem Anlegen: Tenant öffnen → <strong>Admin consent</strong> → Kunde bestätigt die Permissions.</li>
@@ -126,6 +241,7 @@
       </ol>
       <p class="muted">Secrets werden mit <code>MASTER_KEY</code> verschlüsselt in der Datenbank gespeichert — nie im Klartext ins Git.</p>
     </section>
+    {{end}}
   </main>
 </body>
 </html>

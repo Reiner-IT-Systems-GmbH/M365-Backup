@@ -1,0 +1,6 @@
+{{define "langswitch"}}
+<span class="lang-switch" role="group" aria-label="{{.L.T "lang.label"}}">
+  <a href="/lang/de?next={{urlquery .ReturnTo}}" {{if eq .Lang "de"}}class="active" aria-current="true"{{end}}>DE</a>
+  <a href="/lang/en?next={{urlquery .ReturnTo}}" {{if eq .Lang "en"}}class="active" aria-current="true"{{end}}>EN</a>
+</span>
+{{end}}

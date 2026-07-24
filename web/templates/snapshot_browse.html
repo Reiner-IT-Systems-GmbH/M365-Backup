@@ -1,6 +1,6 @@
 {{define "snapshot_browse.html"}}
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,18 +13,19 @@
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
     <nav>
       <a href="/tenants/{{.Tenant.ID}}">← {{.Tenant.Name}}</a>
-      <a href="/tenants/{{.Tenant.ID}}/restore">Restore</a>
+      <a href="/tenants/{{.Tenant.ID}}/restore">{{.L.T "nav.restore"}}</a>
+      {{template "langswitch" .}}
     </nav>
   </header>
   <main class="wrap">
-    <h1>Snapshot durchsuchen</h1>
+    <h1>{{.L.T "snapbrowse.title"}}</h1>
     <p class="muted"><code>{{.SnapID}}</code></p>
 
     <form class="row gap" method="get" action="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}" style="margin:1rem 0">
-      <input type="search" name="q" value="{{.Query}}" placeholder="Suche: Name, UPN, Pfad, .eml …" style="flex:1;min-width:200px">
+      <input type="search" name="q" value="{{.Query}}" placeholder="{{.L.T "snapbrowse.search_ph"}}" style="flex:1;min-width:200px">
       {{if .Path}}<input type="hidden" name="path" value="{{.Path}}">{{end}}
-      <button type="submit">Suchen</button>
-      {{if .Query}}<a class="btn secondary" href="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}">Reset</a>{{end}}
+      <button type="submit">{{.L.T "action.search"}}</button>
+      {{if .Query}}<a class="btn secondary" href="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}">{{.L.T "action.reset"}}</a>{{end}}
     </form>
 
     {{if not .Query}}
@@ -33,14 +34,14 @@
       {{if .Path}}{{.Path}}{{end}}
     </p>
     {{if or .Path .Parent}}
-    <p><a class="btn secondary" href="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}{{if .Parent}}?path={{.Parent}}{{end}}">↑ Parent</a></p>
+    <p><a class="btn secondary" href="/tenants/{{.Tenant.ID}}/snapshots/{{.SnapID}}{{if .Parent}}?path={{.Parent}}{{end}}">{{.L.T "browser.parent"}}</a></p>
     {{end}}
     {{else}}
-    <p class="muted">Suchergebnisse für <strong>{{.Query}}</strong> (max. 500 Treffer)</p>
+    <p class="muted">{{.L.T "snapbrowse.results"}} <strong>{{.Query}}</strong> {{.L.T "snapbrowse.max"}}</p>
     {{end}}
 
     <table>
-      <thead><tr><th>Name / Pfad</th><th>Size</th><th></th></tr></thead>
+      <thead><tr><th>{{.L.T "snapbrowse.col.name"}}</th><th>{{.L.T "browser.col.size"}}</th><th></th></tr></thead>
       <tbody>
       {{range .Entries}}
         <tr>
@@ -54,13 +55,13 @@
           <td>{{if not .IsDir}}{{.Size}}{{end}}</td>
           <td>
             {{if not .IsDir}}
-            <a class="btn secondary btn-sm" href="/tenants/{{$.Tenant.ID}}/snapshots/{{$.SnapID}}/file?path={{.Path}}">Download</a>
+            <a class="btn secondary btn-sm" href="/tenants/{{$.Tenant.ID}}/snapshots/{{$.SnapID}}/file?path={{.Path}}">{{$.L.T "action.download"}}</a>
             {{end}}
           </td>
         </tr>
       {{else}}
         <tr><td colspan="3" class="muted">
-          {{if .Query}}Keine Treffer.{{else}}Leer — in diesem Snapshot liegen keine Dateien (z.B. nur Skips ohne Mailbox). Nach einem neuen Exchange-Backup mit voller User-Pagination erneut prüfen.{{end}}
+          {{if .Query}}{{.L.T "browser.no_hits"}}{{else}}{{.L.T "snapbrowse.empty"}}{{end}}
         </td></tr>
       {{end}}
       </tbody>

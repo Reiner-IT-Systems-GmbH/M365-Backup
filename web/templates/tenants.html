@@ -1,10 +1,10 @@
 {{define "tenants.html"}}
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tenants · M365 Backup</title>
+  <title>{{.L.T "tenants.title"}} · M365 Backup</title>
   <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
@@ -13,33 +13,34 @@
   <header class="top">
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
     <nav>
-      <a href="/tenants">Tenants</a>
-      <a href="/settings">Settings</a>
-      <a href="/openapi">API</a>
-      <form method="post" action="/logout" class="inline"><button type="submit">Logout</button></form>
+      <a href="/tenants">{{.L.T "nav.tenants"}}</a>
+      <a href="/settings">{{.L.T "nav.settings"}}</a>
+      <a href="/openapi">{{.L.T "nav.api"}}</a>
+      {{template "langswitch" .}}
+      <form method="post" action="/logout" class="inline"><button type="submit">{{.L.T "nav.logout"}}</button></form>
     </nav>
   </header>
   <main class="wrap">
     <div class="row between">
-      <h1>Tenants</h1>
+      <h1>{{.L.T "tenants.title"}}</h1>
       <div class="row gap">
         <form method="post" action="/tenants/usage/refresh">
           <button type="submit" class="btn secondary" {{if .UsageRunning}}disabled{{end}}>
-            {{if .UsageRunning}}Speicher wird gemessen…{{else}}Speicher aktualisieren{{end}}
+            {{if .UsageRunning}}{{.L.T "tenants.usage_running"}}{{else}}{{.L.T "tenants.refresh_usage"}}{{end}}
           </button>
         </form>
-        <a class="btn" href="/tenants/new">Add tenant</a>
+        <a class="btn" href="/tenants/new">{{.L.T "tenants.add"}}</a>
       </div>
     </div>
     {{if eq .UsageFlash "started"}}
-    <p class="callout">Speicher-Messung läuft im Hintergrund (wie <code>du -hs</code>). Seite neu laden, wenn fertig.</p>
+    <p class="callout">{{.L.T "tenants.flash_started"}}</p>
     {{else if eq .UsageFlash "busy"}}
-    <p class="callout">Messung läuft bereits.</p>
+    <p class="callout">{{.L.T "tenants.flash_busy"}}</p>
     {{end}}
-    <p class="muted">Speicherwerte kommen aus dem Cache (stündlich + manuell). Die Liste blockiert nicht mehr auf Disk-Walks.</p>
+    <p class="muted">{{.L.T "tenants.usage_hint"}}</p>
     {{if .Tenants}}
     <table>
-      <thead><tr><th>Name</th><th>Azure Tenant</th><th>Status</th><th>Speicher</th><th></th></tr></thead>
+      <thead><tr><th>{{.L.T "tenants.col.name"}}</th><th>{{.L.T "tenants.col.azure"}}</th><th>{{.L.T "tenants.col.status"}}</th><th>{{.L.T "tenants.col.storage"}}</th><th></th></tr></thead>
       <tbody>
       {{range .Tenants}}
         <tr>
@@ -51,19 +52,19 @@
             <strong>{{.Usage.TotalHuman}}</strong>
             <span class="muted" style="font-size:.8rem;display:block">
               Snap {{.Usage.SnapshotsHuman}} · Sync {{.Usage.SyncHuman}}
-              {{if not .MeasuredAt.IsZero}} · Stand {{fmtTime .MeasuredAt "02.01.2006 15:04"}}{{end}}
+              {{if not .MeasuredAt.IsZero}} · {{$.L.T "tenants.usage_stand"}} {{fmtTime .MeasuredAt "02.01.2006 15:04"}}{{end}}
             </span>
             {{else}}
-            <span class="muted">noch nicht gemessen</span>
+            <span class="muted">{{$.L.T "tenants.not_measured"}}</span>
             {{end}}
           </td>
-          <td><a href="/tenants/{{.Tenant.ID}}">Open</a></td>
+          <td><a href="/tenants/{{.Tenant.ID}}">{{$.L.T "action.open"}}</a></td>
         </tr>
       {{end}}
       </tbody>
     </table>
     {{else}}
-    <p class="muted">No tenants yet. Create one and complete admin consent.</p>
+    <p class="muted">{{.L.T "tenants.empty"}}</p>
     {{end}}
   </main>
 </body>

@@ -94,6 +94,7 @@ func (s *SessionStore) Logout(token string) {
 func (s *SessionStore) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/login") ||
+			strings.HasPrefix(r.URL.Path, "/lang/") ||
 			strings.HasPrefix(r.URL.Path, "/static/") ||
 			strings.HasPrefix(r.URL.Path, "/api/consent/callback") ||
 			r.URL.Path == "/healthz" {

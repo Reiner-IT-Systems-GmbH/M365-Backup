@@ -122,6 +122,7 @@ Default schedules (after consent): Exchange hourly · OneDrive nightly · Teams 
 ### Admin UI / ops (working)
 
 - Multi-tenant onboarding + admin consent flow
+- UI language: German / English (cookie + `Accept-Language`, switcher in nav)
 - Tenant page: quick actions (start backup) + tabs (Jobs, Settings, Statistics, Snapshots, PST exports)
 - Job runner with live progress, cancel, logs
 - Dateibrowser (service + snapshot version), ZIP restore, OD/SP Graph restore

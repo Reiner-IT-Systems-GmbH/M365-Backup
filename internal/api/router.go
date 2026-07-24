@@ -25,6 +25,7 @@ import (
 	"github.com/rhw/m365backup/internal/config"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
+	"github.com/rhw/m365backup/internal/i18n"
 	"github.com/rhw/m365backup/internal/notification"
 	"github.com/rhw/m365backup/internal/storage"
 	"github.com/rhw/m365backup/internal/tenant"
@@ -61,6 +62,7 @@ func (s *Server) Router() http.Handler {
 	r.Get("/login", s.handleLoginForm)
 	r.Post("/login", s.handleLogin)
 	r.Post("/logout", s.handleLogout)
+	r.Get("/lang/{lang}", s.handleSetLang)
 
 	r.Get("/", s.handleHome)
 	r.Get("/tenants", s.handleTenants)
@@ -112,7 +114,7 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
-	_ = s.Templates.ExecuteTemplate(w, "login.html", nil)
+	s.render(w, r, "login.html", nil)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +189,7 @@ func (s *Server) handleTenants(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, rec)
 	}
-	_ = s.Templates.ExecuteTemplate(w, "tenants.html", map[string]any{
+	s.render(w, r, "tenants.html", map[string]any{
 		"Tenants":      rows,
 		"UsageRunning": s.Usage != nil && s.Usage.Running(),
 		"UsageFlash":   r.URL.Query().Get("usage"),
@@ -220,7 +222,7 @@ func (s *Server) handleUsageRefreshOne(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTenantNewForm(w http.ResponseWriter, r *http.Request) {
-	_ = s.Templates.ExecuteTemplate(w, "tenant_new.html", map[string]any{
+	s.render(w, r, "tenant_new.html", map[string]any{
 		"RedirectURI": s.Cfg.PublicBaseURL + "/api/consent/callback",
 	})
 }
@@ -260,7 +262,7 @@ func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 	// so #jobs stays fast and does not wait on repo connect / disk walks.
 	usage, measuredAt := s.cachedUsage(r.Context(), id)
 	retention := storage.ParseRetentionJSON(t.RetentionJSON)
-	_ = s.Templates.ExecuteTemplate(w, "tenant_detail.html", map[string]any{
+	s.render(w, r, "tenant_detail.html", map[string]any{
 		"Tenant": t, "TenantID": id, "Jobs": jobs, "JobCounts": countJobs(jobs),
 		"Schedules": schedules, "Usage": usage, "UsageMeasuredAt": measuredAt,
 		"UsageFlash": r.URL.Query().Get("usage"),
@@ -276,7 +278,7 @@ func (s *Server) handleRecoveryForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", 404)
 		return
 	}
-	_ = s.Templates.ExecuteTemplate(w, "tenant_recovery.html", map[string]any{
+	s.render(w, r, "tenant_recovery.html", map[string]any{
 		"Tenant": t,
 		"IsNew":  r.URL.Query().Get("new") == "1",
 		"RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
@@ -298,9 +300,9 @@ func (s *Server) handleRecoveryExport(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.Sessions.CheckPassword(r.FormValue("admin_password")) {
 		s.Sessions.recordLoginAttempt(ip)
-		_ = s.Templates.ExecuteTemplate(w, "tenant_recovery.html", map[string]any{
+		s.render(w, r, "tenant_recovery.html", map[string]any{
 			"Tenant": t, "RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
-			"Error": "Admin-Passwort falsch.",
+			"Error": i18n.New(i18n.FromRequest(r)).T("recovery.bad_password"),
 		})
 		return
 	}
@@ -319,7 +321,7 @@ func (s *Server) handleRecoveryExport(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(body))
 		return
 	}
-	_ = s.Templates.ExecuteTemplate(w, "tenant_recovery.html", map[string]any{
+	s.render(w, r, "tenant_recovery.html", map[string]any{
 		"Tenant": t, "RepoPath": repoPath,
 		"KopiaPassword": kopiaPass,
 		"Revealed":      true,
@@ -376,7 +378,7 @@ func (s *Server) handleJobsPartial(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	_ = s.Templates.ExecuteTemplate(w, "jobs_partial.html", map[string]any{
+	s.render(w, r, "jobs_partial.html", map[string]any{
 		"Jobs": jobs, "TenantID": id, "JobCounts": countJobs(jobs),
 	})
 }
@@ -390,7 +392,7 @@ func (s *Server) handleSnapshotsPartial(w http.ResponseWriter, r *http.Request) 
 	}
 	snaps := s.listTenantSnapshots(r.Context(), t)
 	s.annotateSnapshots(r.Context(), id, snaps)
-	_ = s.Templates.ExecuteTemplate(w, "snapshots_partial.html", map[string]any{
+	s.render(w, r, "snapshots_partial.html", map[string]any{
 		"Tenant": t, "TenantID": id, "Snapshots": snaps,
 	})
 }
@@ -403,7 +405,7 @@ func (s *Server) handlePSTExportsPartial(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	pstExports, _ := storage.ListPSTExports(t.KopiaRepoPath)
-	_ = s.Templates.ExecuteTemplate(w, "pst_exports_partial.html", map[string]any{
+	s.render(w, r, "pst_exports_partial.html", map[string]any{
 		"Tenant": t, "TenantID": id, "PSTExports": pstExports,
 	})
 }
@@ -422,7 +424,7 @@ func (s *Server) handleJobDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logs, _ := s.DB.ListJobLogs(r.Context(), jid)
-	_ = s.Templates.ExecuteTemplate(w, "job_detail.html", map[string]any{
+	s.render(w, r, "job_detail.html", map[string]any{
 		"Tenant": t, "Job": job, "Logs": logs,
 	})
 }
@@ -441,7 +443,7 @@ func (s *Server) handleJobLive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logs, _ := s.DB.ListJobLogs(r.Context(), jid)
-	_ = s.Templates.ExecuteTemplate(w, "job_live_partial.html", map[string]any{
+	s.render(w, r, "job_live_partial.html", map[string]any{
 		"Tenant": t, "Job": job, "Logs": logs,
 	})
 }
@@ -460,7 +462,7 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Header.Get("HX-Request") == "true" {
 		jobs, _ := s.DB.ListJobs(r.Context(), tid, 30)
-		_ = s.Templates.ExecuteTemplate(w, "jobs_partial.html", map[string]any{
+		s.render(w, r, "jobs_partial.html", map[string]any{
 			"Jobs": jobs, "TenantID": tid, "JobCounts": countJobs(jobs),
 		})
 		return
@@ -694,7 +696,7 @@ func (s *Server) handleBrowser(w http.ResponseWriter, r *http.Request) {
 		data["Parent"] = parent
 	}
 
-	_ = s.Templates.ExecuteTemplate(w, "browser.html", data)
+	s.render(w, r, "browser.html", data)
 }
 
 func (s *Server) handleBrowserFile(w http.ResponseWriter, r *http.Request) {
@@ -878,7 +880,7 @@ func (s *Server) handleRestoreForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snaps := s.listTenantSnapshots(r.Context(), t)
-	_ = s.Templates.ExecuteTemplate(w, "restore.html", map[string]any{"Tenant": t, "Snapshots": snaps})
+	s.render(w, r, "restore.html", map[string]any{"Tenant": t, "Snapshots": snaps})
 }
 
 func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
@@ -1003,7 +1005,7 @@ func (s *Server) graphUploadRestore(ctx context.Context, t *db.Tenant, service, 
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	settings, _ := s.DB.ListNotificationSettings(r.Context())
-	_ = s.Templates.ExecuteTemplate(w, "settings.html", map[string]any{"Settings": settings})
+	s.render(w, r, "settings.html", map[string]any{"Settings": settings})
 }
 
 func (s *Server) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
@@ -1271,7 +1273,7 @@ func (s *Server) apiPutNotifications(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOpenAPIPage(w http.ResponseWriter, r *http.Request) {
-	_ = s.Templates.ExecuteTemplate(w, "openapi.html", map[string]any{
+	s.render(w, r, "openapi.html", map[string]any{
 		"BaseURL": s.requestBaseURL(r),
 	})
 }

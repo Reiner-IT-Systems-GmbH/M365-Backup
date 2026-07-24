@@ -1,7 +1,7 @@
 {{define "pst_exports_partial.html"}}
 {{if .PSTExports}}
 <table class="compact">
-  <thead><tr><th>Lauf</th><th>User</th><th>Mails</th><th>Größe</th><th>Dateien</th></tr></thead>
+  <thead><tr><th>{{.L.T "pst.col.run"}}</th><th>{{.L.T "pst.col.user"}}</th><th>{{.L.T "pst.col.mails"}}</th><th>{{.L.T "pst.col.size"}}</th><th>{{.L.T "pst.col.files"}}</th></tr></thead>
   <tbody>
   {{range $ex := .PSTExports}}
     <tr>
@@ -21,6 +21,6 @@
   </tbody>
 </table>
 {{else}}
-<p class="muted">Noch keine Exporte.</p>
+<p class="muted">{{.L.T "pst.empty"}}</p>
 {{end}}
 {{end}}

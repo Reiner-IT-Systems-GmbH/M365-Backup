@@ -1,35 +1,38 @@
 {{define "restore.html"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Restore · {{.Tenant.Name}}</title>
+  <title>{{.L.T "restore.title"}} · {{.Tenant.Name}}</title>
   <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="top">
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
-    <nav><a href="/tenants/{{.Tenant.ID}}">Back</a></nav>
+    <nav>
+      <a href="/tenants/{{.Tenant.ID}}">{{.L.T "nav.back"}}</a>
+      {{template "langswitch" .}}
+    </nav>
   </header>
   <main class="wrap narrow">
-    <h1>Restore · {{.Tenant.Name}}</h1>
+    <h1>{{.L.T "restore.title"}} · {{.Tenant.Name}}</h1>
     <form method="post" action="/tenants/{{.Tenant.ID}}/restore" class="stack">
-      <label>Snapshot
+      <label>{{.L.T "restore.snapshot"}}
         <select name="snapshot_id" required>
           {{range .Snapshots}}
           <option value="{{.ID}}">{{.ID}} ({{fmtTime .CreatedAt "02.01.2006 15:04"}})</option>
           {{end}}
         </select>
       </label>
-      <label>Mode
+      <label>{{.L.T "restore.mode"}}
         <select name="mode">
-          <option value="zip">Download ZIP (Exchange EML / Teams archive / files)</option>
-          <option value="graph">Upload to Graph (OneDrive / SharePoint)</option>
+          <option value="zip">{{$.L.T "restore.mode_zip"}}</option>
+          <option value="graph">{{$.L.T "restore.mode_graph"}}</option>
         </select>
       </label>
-      <label>Service (for Graph upload)
+      <label>{{.L.T "restore.service"}}
         <select name="service">
           <option value="onedrive">onedrive</option>
           <option value="sharepoint">sharepoint</option>
@@ -37,9 +40,9 @@
           <option value="teams">teams</option>
         </select>
       </label>
-      <button type="submit">Restore</button>
+      <button type="submit">{{.L.T "restore.submit"}}</button>
     </form>
-    <p class="muted">Teams restores are archive-only (ZIP). Graph upload requires Files.ReadWrite.All (or equivalent) on the app registration.</p>
+    <p class="muted">{{.L.T "restore.hint"}}</p>
   </main>
 </body>
 </html>

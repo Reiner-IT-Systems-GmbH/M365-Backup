@@ -5,11 +5,11 @@
   <li>
     <a href="/tenants/{{$.TenantID}}/browser?{{if .Service}}service={{.Service}}&amp;{{end}}version={{.ID}}"><code>{{.ID}}</code></a>
     {{if .Service}}· <span class="badge">{{.Service}}</span>{{end}}
-    · {{fmtTime .CreatedAt "02.01.2006 15:04"}} · {{.Files}} Dateien · {{.BytesHuman}}
+    · {{fmtTime .CreatedAt "02.01.2006 15:04"}} · {{.Files}} {{$.L.T "snapshots.files"}} · {{.BytesHuman}}
   </li>
   {{end}}
 </ul>
 {{else}}
-<p class="muted">Noch keine Snapshots.</p>
+<p class="muted">{{.L.T "snapshots.empty"}}</p>
 {{end}}
 {{end}}

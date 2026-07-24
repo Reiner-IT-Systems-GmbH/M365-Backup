@@ -10,7 +10,7 @@ Package: `internal/api` + embedded `web/` (Templates, Static, OpenAPI).
 | Session | Cookie 24 h, HttpOnly, SameSite=Lax | Secure wenn HTTPS / Public-URL |
 | Hash | SHA-256, constant-time Compare | Kein Klartext in Session-Store |
 | Rate Limit | 10 Attempts / Minute / IP | Brute-Force dämpfen |
-| Öffentlich | `/login`, `/static/*`, Consent-Callback, `/healthz` | Rest hinter Session |
+| Öffentlich | `/login`, `/lang/{de|en}`, `/static/*`, Consent-Callback, `/healthz` | Rest hinter Session |
 
 RBAC, 2FA, Audit-Log sind bewusst noch nicht da (Roadmap).
 
@@ -51,3 +51,14 @@ Client Secret oder Klartext-Kopia-Passwort.
 
 Admin-Oberfläche ist funktional (Ops-Tool), kein Marketing-Landing. Bestehende Patterns
 (Tabs, Live-Jobs, Browser) beibehalten — keine generische Dashboard-Spielerei.
+
+## Sprache (DE / EN)
+
+UI-Strings liegen in `internal/i18n` (`de` / `en`). Auswahl:
+
+1. Cookie `lang` (gesetzt über `/lang/{de|en}?next=…`)
+2. sonst `Accept-Language`
+3. sonst Deutsch
+
+Sprachschalter in der Top-Nav (und auf der Login-Seite). Öffentliche Route `/lang/…`
+ohne Session.

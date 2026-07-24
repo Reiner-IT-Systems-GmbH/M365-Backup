@@ -1,10 +1,10 @@
 {{define "openapi.html"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>API · M365 Backup</title>
+  <title>{{.L.T "nav.api"}} · M365 Backup</title>
   <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css">
@@ -41,18 +41,19 @@
   <header class="top">
     <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
     <nav>
-      <a href="/tenants">Tenants</a>
-      <a href="/settings">Settings</a>
-      <a href="/openapi">API</a>
-      <form method="post" action="/logout" class="inline"><button type="submit">Logout</button></form>
+      <a href="/tenants">{{.L.T "nav.tenants"}}</a>
+      <a href="/settings">{{.L.T "nav.settings"}}</a>
+      <a href="/openapi">{{.L.T "nav.api"}}</a>
+      {{template "langswitch" .}}
+      <form method="post" action="/logout" class="inline"><button type="submit">{{.L.T "nav.logout"}}</button></form>
     </nav>
   </header>
   <div class="openapi-bar">
-    <h1>OpenAPI</h1>
+    <h1>{{.L.T "openapi.title"}}</h1>
     <p class="muted" style="margin:0">
-      Live spec for this instance ·
-      <a href="/openapi.yaml">Download openapi.yaml</a>
-      · Base <code>{{.BaseURL}}</code>
+      {{.L.T "openapi.live"}} ·
+      <a href="/openapi.yaml">{{.L.T "openapi.download"}}</a>
+      · {{.L.T "openapi.base"}} <code>{{.BaseURL}}</code>
     </p>
   </div>
   <main class="wrap openapi">
