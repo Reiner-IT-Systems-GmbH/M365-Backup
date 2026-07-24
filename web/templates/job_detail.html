@@ -18,7 +18,7 @@
     <h1>Job-Log</h1>
     <p class="muted" id="job-meta">
       <span class="badge {{.Job.Status}}">{{.Job.Status}}</span>
-      · {{.Job.Service}} · {{.Job.CreatedAt.Format "2006-01-02 15:04:05"}}
+      · {{.Job.Service}} · {{fmtTime .Job.CreatedAt "02.01.2006 15:04:05"}}
       · Items {{.Job.ItemsNew}}/{{.Job.ItemsTotal}}
       · {{.Job.BytesTransferred}} bytes
       {{if .Job.KopiaSnapshot}}

@@ -132,7 +132,7 @@
       <div class="usage-panel" style="margin:0">
         <h2>Speicherplatz</h2>
         <p class="muted">Cache (stündlich / manuell) · Gesamt <strong>{{printf "%.2f" .Usage.TotalGB}} GB</strong> ({{.Usage.TotalHuman}})
-          {{if .UsageMeasuredAt}}{{if not .UsageMeasuredAt.IsZero}} · Stand {{.UsageMeasuredAt.UTC.Format "2006-01-02 15:04"}} UTC{{end}}{{end}}
+          {{if .UsageMeasuredAt}}{{if not .UsageMeasuredAt.IsZero}} · Stand {{fmtTime .UsageMeasuredAt "02.01.2006 15:04"}}{{end}}{{end}}
         </p>
         <p class="callout usage-explain">
           <strong>Gesamt</strong> = echte Belegung auf der Platte.

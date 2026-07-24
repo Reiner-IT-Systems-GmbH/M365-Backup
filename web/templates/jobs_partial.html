@@ -23,7 +23,7 @@
         <div class="job-card-top">
           <span class="badge {{.Status}}">{{.Status}}</span>
           <span class="job-svc">{{.Service}}</span>
-          <span class="muted job-when">{{.CreatedAt.Format "02.01.2006 15:04"}}</span>
+          <span class="muted job-when">{{fmtTime .CreatedAt "02.01.2006 15:04"}}</span>
         </div>
         {{if or (eq .Status "running") (eq .Status "queued")}}
         <div class="progress-mini {{.Status}}">

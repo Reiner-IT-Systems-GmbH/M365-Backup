@@ -83,11 +83,16 @@ func main() {
 	}
 	defer sched.Stop()
 
-	tmpl, err := template.ParseFS(web.Templates, "templates/*.html")
+	tmpl, err := template.New("").Funcs(template.FuncMap{
+		"fmtTime": func(t time.Time, layout string) string {
+			return cfg.FormatTime(t, layout)
+		},
+	}).ParseFS(web.Templates, "templates/*.html")
 	if err != nil {
 		log.Error("templates", "err", err)
 		os.Exit(1)
 	}
+	log.Info("display timezone", "tz", cfg.DisplayTZ)
 	staticRoot, err := fs.Sub(web.Static, "static")
 	if err != nil {
 		log.Error("static", "err", err)

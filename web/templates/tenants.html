@@ -51,7 +51,7 @@
             <strong>{{.Usage.TotalHuman}}</strong>
             <span class="muted" style="font-size:.8rem;display:block">
               Snap {{.Usage.SnapshotsHuman}} · Sync {{.Usage.SyncHuman}}
-              {{if not .MeasuredAt.IsZero}} · Stand {{.MeasuredAt.UTC.Format "2006-01-02 15:04"}} UTC{{end}}
+              {{if not .MeasuredAt.IsZero}} · Stand {{fmtTime .MeasuredAt "02.01.2006 15:04"}}{{end}}
             </span>
             {{else}}
             <span class="muted">noch nicht gemessen</span>

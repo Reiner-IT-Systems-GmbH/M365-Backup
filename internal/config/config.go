@@ -22,14 +22,17 @@ type Config struct {
 	StagingRoot       string
 	MasterKey         string
 	AdminPassword     string
-	MaxConcurrentJobs  int
-	ExchangeWorkers    int
-	SMTPHost           string
-	SMTPPort          int
-	SMTPUsername      string
-	SMTPPassword      string
-	SMTPFrom          string
-	SMTPTo            []string
+	MaxConcurrentJobs int
+	ExchangeWorkers   int
+	// DisplayTZ is the IANA zone for UI timestamps (storage stays UTC).
+	DisplayTZ   string
+	DisplayLoc  *time.Location
+	SMTPHost    string
+	SMTPPort    int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom    string
+	SMTPTo      []string
 }
 
 func Load() (*Config, error) {
@@ -46,6 +49,7 @@ func Load() (*Config, error) {
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		MaxConcurrentJobs: getenvInt("MAX_CONCURRENT_JOBS", 2),
 		ExchangeWorkers:   getenvInt("EXCHANGE_WORKERS", 6),
+		DisplayTZ:         displayTZName(),
 		SMTPHost:          os.Getenv("SMTP_HOST"),
 		SMTPPort:          getenvInt("SMTP_PORT", 587),
 		SMTPUsername:      os.Getenv("SMTP_USERNAME"),
@@ -55,6 +59,12 @@ func Load() (*Config, error) {
 	if to := os.Getenv("SMTP_TO"); to != "" {
 		cfg.SMTPTo = splitComma(to)
 	}
+
+	loc, err := time.LoadLocation(cfg.DisplayTZ)
+	if err != nil {
+		return nil, fmt.Errorf("DISPLAY_TZ %q: %w", cfg.DisplayTZ, err)
+	}
+	cfg.DisplayLoc = loc
 
 	if cfg.MasterKey == "" {
 		return nil, fmt.Errorf("MASTER_KEY is required (openssl rand -base64 32)")
@@ -119,6 +129,29 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// displayTZName: DISPLAY_TZ, else TZ, else Europe/Berlin (German UI default).
+func displayTZName() string {
+	if v := os.Getenv("DISPLAY_TZ"); v != "" {
+		return v
+	}
+	if v := os.Getenv("TZ"); v != "" {
+		return v
+	}
+	return "Europe/Berlin"
+}
+
+// FormatTime renders t in the configured display zone (empty if zero).
+func (c *Config) FormatTime(t time.Time, layout string) string {
+	if t.IsZero() {
+		return ""
+	}
+	loc := c.DisplayLoc
+	if loc == nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format(layout)
 }
 
 func getenvInt(k string, def int) int {

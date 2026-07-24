@@ -5,7 +5,7 @@
   <tbody>
   {{range $ex := .PSTExports}}
     <tr>
-      <td><code>{{$ex.ID}}</code> · {{$ex.CreatedAt.Format "02.01.2006 15:04"}}</td>
+      <td><code>{{$ex.ID}}</code> · {{fmtTime $ex.CreatedAt "02.01.2006 15:04"}}</td>
       <td>{{$ex.Users}}</td>
       <td>{{$ex.Files}}</td>
       <td>{{$ex.Human}}</td>
