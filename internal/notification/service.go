@@ -127,20 +127,30 @@ func (s *Service) sendSMTP(configJSON string, ev Event) error {
 	if cfg.Port == 0 {
 		cfg.Port = 587
 	}
+	if err := rejectSMTPMeta(cfg.From); err != nil {
+		return fmt.Errorf("smtp from: %w", err)
+	}
+	for i, to := range cfg.To {
+		if err := rejectSMTPMeta(to); err != nil {
+			return fmt.Errorf("smtp to[%d]: %w", i, err)
+		}
+	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	subject := sanitizeHeader(ev.Subject)
 	from := sanitizeHeader(cfg.From)
 	toHeader := sanitizeHeader(strings.Join(cfg.To, ","))
+	body := sanitizeBody(ev.Body)
 	msg := []byte("From: " + from + "\r\n" +
 		"To: " + toHeader + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n" +
-		ev.Body + "\r\n")
+		body + "\r\n")
 	var auth smtp.Auth
 	if cfg.Username != "" {
 		auth = smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
 	}
-	return smtp.SendMail(addr, auth, cfg.From, cfg.To, msg)
+	// Use sanitized envelope addresses so CRLF cannot inject SMTP commands.
+	return smtp.SendMail(addr, auth, from, cfg.To, msg)
 }
 
 type webhookConfig struct {
@@ -281,7 +291,44 @@ func isOKEvent(t string) bool {
 func sanitizeHeader(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\x00", "")
 	return s
+}
+
+// sanitizeBody keeps plain-text newlines but strips NUL and bare CR that could
+// confuse some SMTP/MIME parsers when composing the message.
+func sanitizeBody(s string) string {
+	s = strings.ReplaceAll(s, "\x00", "")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.ReplaceAll(s, "\n", "\r\n")
+}
+
+// rejectSMTPMeta blocks CRLF/NUL in envelope addresses (SMTP command injection).
+func rejectSMTPMeta(s string) error {
+	if strings.ContainsAny(s, "\r\n\x00") {
+		return fmt.Errorf("address contains control characters")
+	}
+	return nil
+}
+
+// SafeService returns a constant label for known backup services so notification
+// text cannot carry arbitrary request-controlled service strings.
+func SafeService(service string) string {
+	switch strings.ToLower(strings.TrimSpace(service)) {
+	case "exchange":
+		return "exchange"
+	case "onedrive":
+		return "onedrive"
+	case "sharepoint":
+		return "sharepoint"
+	case "teams":
+		return "teams"
+	case "pst":
+		return "pst"
+	default:
+		return "unknown"
+	}
 }
 
 func contains(ss []string, v string) bool {

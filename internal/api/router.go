@@ -962,7 +962,9 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = s.Notifier.Send(r.Context(), notification.Event{
 			Type: notification.EventRestoreDone, TenantID: t.ID,
-			Subject: "Graph restore done: " + t.Name, Body: "Service " + service + " snapshot " + snapID,
+			Subject: "Graph restore done: " + t.Name,
+			// Use allowlisted service label only — never raw form input in email content.
+			Body: "Service " + notification.SafeService(service) + " restore completed.",
 		})
 		http.Redirect(w, r, "/tenants/"+id+"?restored=1", http.StatusFound)
 		return
@@ -975,7 +977,8 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Notifier.Send(r.Context(), notification.Event{
 		Type: notification.EventRestoreDone, TenantID: t.ID,
-		Subject: "Restore export ready: " + t.Name, Body: "Snapshot " + snapID,
+		Subject: "Restore export ready: " + t.Name,
+		Body:    "Snapshot export is ready for download.",
 	})
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", snapID+".zip"))

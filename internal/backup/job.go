@@ -347,7 +347,7 @@ func (r *Runner) runJob(jobID string) {
 		job.ErrorMessage = summarizeResult(result)
 		_ = r.Notifier.Send(ctx, notification.Event{
 			Type: notification.EventJobWarning, TenantID: t.ID,
-			Subject: "Backup warning: " + t.Name + " / " + job.Service,
+			Subject: "Backup warning: " + t.Name + " / " + notification.SafeService(job.Service),
 			Body:    job.ErrorMessage + "\n\nSee job detail log for full list.",
 		})
 	} else {
@@ -401,7 +401,7 @@ func (r *Runner) fail(ctx context.Context, job *db.Job, err error) {
 	r.Log.Error("job failed", "id", job.ID, "err", err)
 	_ = r.Notifier.Send(context.Background(), notification.Event{
 		Type: notification.EventJobError, TenantID: job.TenantID,
-		Subject: "Backup failed: " + job.Service,
+		Subject: "Backup failed: " + notification.SafeService(job.Service),
 		Body:    err.Error(),
 	})
 }
