@@ -48,7 +48,7 @@ Semaphore erwerben (MAX_CONCURRENT_JOBS)
   → stageDir = {STAGING_ROOT}/{jobID}  (defer RemoveAll)
   → svc.Run(...)
   → SkipSnapshot? → PST-Retention, fertig
-  → Snapshot(SnapshotDir || stageDir)
+  → Snapshot(SnapshotDir || stageDir)   ← inkrementell vs. vorheriges Manifest
   → ApplySmartRetention (+ GC)
   → success | warning | error + Notify
 ```

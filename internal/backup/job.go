@@ -295,7 +295,7 @@ func (r *Runner) runJob(jobID string) {
 	}
 	prog.Emit("info", fmt.Sprintf("creating snapshot from %s (%d items, %d bytes)…", snapSource, result.ItemsNew, result.BytesTransferred))
 	job.ProgressPct = 95
-	job.ProgressMessage = "Creating encrypted snapshot…"
+	job.ProgressMessage = "Creating encrypted snapshot (incremental vs previous)…"
 	_ = r.DB.UpdateJobProgress(ctx, job)
 	snap, err := r.Store.Snapshot(ctx, t.KopiaRepoPath, kopiaPass, snapSource, job.Service)
 	if err != nil {

@@ -53,6 +53,8 @@ Die Statistik-Spalte **„Snaps (logisch)“** summiert die Inhaltsgröße je Sn
 
 1. **Microsoft Graph Delta** — nach dem ersten Full-Sync nur Änderungen in den Live-Baum.
 2. **Kopia Content-Addressing** — Snapshot speichert nur neue/geänderte Blöcke.
+   Dafür muss der Uploader den **letzten Snapshot derselben Source** kennen
+   (`FindPreviousManifests` → `Upload(..., previous...)`). Sonst Full-Scan trotz Dedup.
 
 ---
 

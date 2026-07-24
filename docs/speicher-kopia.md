@@ -28,7 +28,7 @@ content-addressed. Mischen würde beides erschweren und Recovery verwirren.
 | Methode | Rolle |
 |---------|--------|
 | `CreateRepo` / `initializeRepo` | Repo anlegen + connecten |
-| `Snapshot` | Host `m365backup`, UserName = Service, Tag `m365-service` |
+| `Snapshot` | Host `m365backup`, UserName = Service, Tag `m365-service`; **übergibt vorherige Manifeste** an Kopia (`FindPreviousManifests`) → inkrementell (mtime/size-Cache), kein Full-Rehash |
 | `ListSnapshots` / `ListSnapshotsCached` | Liste; Cache-TTL ~3 min |
 | `ApplySmartRetention` + GC | Manifeste löschen → Maintenance |
 | `Restore` / `ExportZip` | Materialisieren / ZIP |
@@ -92,7 +92,20 @@ Unterscheidung in der UI:
 
 Path-Jail: `ValidateSnapshotID`, `EnsureSubpath` — kein Traversal aus Tenant-Root.
 
-## Kapazität planen
+## Snapshot-Performance
+
+Jeder Job erzeugt einen Kopia-Snapshot des Live-Baums (oder Staging).
+
+**Wichtig:** Der Uploader bekommt die **vorherigen Manifeste** derselben Source
+(`host=m365backup`, `userName=<service>`, gleicher Abs-Pfad). Ohne das hasht Kopia
+den gesamten Baum neu — bei ~70 GB Exchange kann das Stunden dauern, auch wenn Graph
+keine Diffs geliefert hat.
+
+Mit Previous-Manifesten: unveränderte Dateien (gleiche Größe/mtime) werden als
+`CachedFiles` wiederverwendet; nur geänderte/neue EMLs werden gelesen.
+
+Content-/Metadata-Cache unter `.kopia-cache/` (je ~512 MiB) beschleunigt Folge-Läufe zusätzlich.
+
 
 Exchange/OneDrive halten **Live-Sync und Snapshots**. Grob:
 

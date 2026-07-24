@@ -116,8 +116,21 @@ func (e *Engine) Snapshot(ctx context.Context, repoPath, password, sourceDir, se
 				UserName: service,
 				Path:     absSource,
 			}
+			// Critical: without previous manifests Kopia re-hashes the entire tree
+			// (hours on large Exchange sync dirs even when nothing changed).
+			previous, err := snapshot.FindPreviousManifests(ctx, w, src, nil)
+			if err != nil {
+				return fmt.Errorf("find previous snapshots: %w", err)
+			}
+			policyTree, err := policy.TreeForSource(ctx, w, src)
+			if err != nil {
+				policyTree = policy.BuildTree(nil, policy.DefaultPolicy)
+			}
 			u := upload.NewUploader(w)
-			man, err := u.Upload(ctx, entry, policy.BuildTree(nil, policy.DefaultPolicy), src)
+			if u.ParallelUploads < 1 {
+				u.ParallelUploads = 8
+			}
+			man, err := u.Upload(ctx, entry, policyTree, src, previous...)
 			if err != nil {
 				return fmt.Errorf("kopia upload: %w", err)
 			}
@@ -257,8 +270,8 @@ func (e *Engine) connectRepo(ctx context.Context, repoPath, password string) err
 	opt := &repo.ConnectOptions{
 		CachingOptions: content.CachingOptions{
 			CacheDirectory:         RepoCacheDir(repoPath),
-			ContentCacheSizeBytes:  100 << 20,
-			MetadataCacheSizeBytes: 100 << 20,
+			ContentCacheSizeBytes:  512 << 20,
+			MetadataCacheSizeBytes: 512 << 20,
 		},
 	}
 	if err := repo.Connect(ctx, cfg, st, password, opt); err != nil {
@@ -331,7 +344,27 @@ func manifestToInfo(man *snapshot.Manifest, id manifest.ID) *SnapshotInfo {
 	if created.IsZero() {
 		created = man.EndTime.ToTime().UTC()
 	}
+	// Prefer directory summary: incremental uploads often leave Stats.TotalFileCount
+	// at 0 when everything was served from the previous snapshot cache.
 	bytes := man.Stats.TotalFileSize
+	files := int(man.Stats.TotalFileCount)
+	if man.RootEntry != nil && man.RootEntry.DirSummary != nil {
+		if sum := man.RootEntry.DirSummary; sum.TotalFileCount > 0 || sum.TotalFileSize > 0 {
+			if files == 0 {
+				files = int(sum.TotalFileCount)
+			}
+			if bytes == 0 {
+				bytes = sum.TotalFileSize
+			}
+			// Prefer summary size when stats only reflect non-cached bytes.
+			if sum.TotalFileSize > bytes {
+				bytes = sum.TotalFileSize
+			}
+			if int(sum.TotalFileCount) > files {
+				files = int(sum.TotalFileCount)
+			}
+		}
+	}
 	return &SnapshotInfo{
 		ID:         string(id),
 		CreatedAt:  created,
@@ -339,6 +372,6 @@ func manifestToInfo(man *snapshot.Manifest, id manifest.ID) *SnapshotInfo {
 		Service:    svc,
 		Bytes:      bytes,
 		BytesHuman: FormatBytes(bytes),
-		Files:      int(man.Stats.TotalFileCount),
+		Files:      files,
 	}
 }
