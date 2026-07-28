@@ -85,7 +85,7 @@ Staging purgen.
 
 - Persistenter EML-Baum; Delta pro Ordner (`userID|folderID`)
 - Shared Mailboxes: `accountEnabled=false` bewusst **nicht** ausgefiltert
-- MIME über `messages/{id}/$value`; Removed → Datei löschen
+- MIME über `messages/{id}/$value`; bei `ErrorMimeContentConversionFailed` (u. a.) JSON+Attachments-Fallback → rekonstruiertes `.eml`; Removed → Datei löschen
 - Worker-Pool (`EXCHANGE_WORKERS`) für parallele Mailboxen
 - Erster Sync kann schwer sein → deshalb nach Consent zuerst nur Exchange
 

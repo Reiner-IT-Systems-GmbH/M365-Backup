@@ -289,8 +289,18 @@ func backupFolderDelta(
 			rawURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s/messages/%s/$value", userID, mid)
 			body, err := gc.GetBytes(ctx, rawURL)
 			if err != nil {
-				body = []byte("Subject: " + subj + "\r\n\r\n[MIME fetch failed: " + err.Error() + "]\r\n")
-				warnings = append(warnings, fmt.Sprintf("%s mime %s: %v", upn, mid, err))
+				if fb, fbErr := fetchMessageMIMEFallback(ctx, gc, userID, mid); fbErr == nil {
+					body = fb
+					if isMimeConversionFailed(err) {
+						warnings = append(warnings, fmt.Sprintf("%s mime %s: conversion failed — stored JSON fallback", upn, mid))
+					} else {
+						warnings = append(warnings, fmt.Sprintf("%s mime %s: $value failed (%v) — stored JSON fallback", upn, mid, err))
+					}
+				} else {
+					body = []byte("Subject: " + subj + "\r\n\r\n[MIME fetch failed: " + err.Error() +
+						"]\r\n[JSON fallback failed: " + fbErr.Error() + "]\r\n")
+					warnings = append(warnings, fmt.Sprintf("%s mime %s: %v (fallback: %v)", upn, mid, err, fbErr))
+				}
 			}
 			// Drop legacy Graph-ID filenames when rewriting.
 			_ = os.Remove(filepath.Join(folderDir, sanitize(mid)+".eml"))
