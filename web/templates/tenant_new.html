@@ -22,6 +22,13 @@
 
     {{if eq .Lang "en"}}
     <section class="guide-panel">
+      <h2>0. Automated (PowerShell)</h2>
+      <p>Preferred: run <code>scripts/Register-M365BackupApp.ps1</code> as Global Admin in the customer tenant. It creates the app, grants Graph application permissions (admin consent), and prints Tenant ID, Client ID, and client secret.</p>
+      <p><code>.\Register-M365BackupApp.ps1 -RedirectUri "{{.RedirectURI}}"</code></p>
+      <p class="muted">Existing app (add missing permissions, keep secret): <code>.\Register-M365BackupApp.ps1 -AppId "&lt;client-id&gt;"</code></p>
+    </section>
+
+    <section class="guide-panel">
       <h2>1. App registration in Entra Admin Center</h2>
       <ol class="steps">
         <li>
@@ -132,6 +139,13 @@
     </section>
 
     {{else}}
+    <section class="guide-panel">
+      <h2>0. Automatisch (PowerShell)</h2>
+      <p>Empfohlen: <code>scripts/Register-M365BackupApp.ps1</code> als Global Admin im Kunden-Tenant ausführen. Legt die App an, erteilt Graph Application Permissions (Admin Consent) und gibt Tenant ID, Client ID und Client Secret aus.</p>
+      <p><code>.\Register-M365BackupApp.ps1 -RedirectUri "{{.RedirectURI}}"</code></p>
+      <p class="muted">Bestehende App (fehlende Permissions nachziehen, Secret behalten): <code>.\Register-M365BackupApp.ps1 -AppId "&lt;client-id&gt;"</code></p>
+    </section>
+
     <section class="guide-panel">
       <h2>1. App-Registrierung im Entra Admin Center</h2>
       <ol class="steps">

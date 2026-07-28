@@ -263,6 +263,26 @@ Secrets must live in environment / `EnvironmentFile=` only — never in the repo
 
 ## Azure setup
 
+### Automated (recommended)
+
+PowerShell script creates the app registration, Graph **Application** permissions, admin consent, and prints Tenant ID / Client ID / secret:
+
+```powershell
+# From a machine with PowerShell 5.1+ or PowerShell 7
+cd scripts
+.\Register-M365BackupApp.ps1 -RedirectUri "https://<your-host>/api/consent/callback"
+```
+
+Fix an existing app (e.g. add missing `Team.ReadBasic.All`) without rotating the secret:
+
+```powershell
+.\Register-M365BackupApp.ps1 -AppId "<application-client-id>"
+```
+
+Requires Global Admin (or Application Administrator + Privileged Role Administrator) in the customer tenant. Modules `Microsoft.Graph.Authentication` / `Microsoft.Graph.Applications` are installed automatically if missing.
+
+### Manual permissions
+
 Create **one app registration** (in your ops tenant or the customer tenant) and grant **Application** permissions:
 
 | Permission | Purpose |
@@ -281,8 +301,8 @@ Create **one app registration** (in your ops tenant or the customer tenant) and 
 
 ### Admin consent flow
 
-1. Add tenant in UI (name, Azure tenant ID, client ID, client secret, optional expiry date).
-2. Click **Admin consent** — redirects to Microsoft.
+1. Add tenant in UI (name, Azure tenant ID, client ID, client secret, optional expiry date) — or paste values from the script output.
+2. Click **Admin consent** — redirects to Microsoft (optional if the script already granted app-role consent).
 3. Customer admin approves → callback sets status `active` and queues the first Exchange full backup.
 4. Other services follow via their default schedules (cron).
 5. Re-clicking **Admin consent** on an already active tenant only refreshes Graph permissions — no new jobs.
