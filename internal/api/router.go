@@ -1184,7 +1184,7 @@ func (s *Server) handleConsentCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// Start only Exchange first — tenant lock allows one active job; other services follow via cron.
+	// Start only Exchange first — other services follow via cron (may run in parallel).
 	if _, err := s.Runner.Enqueue(r.Context(), tenantID, "exchange", "", "full"); err != nil && !errors.Is(err, backup.ErrTenantBusy) {
 		s.Log.Warn("post-consent enqueue", "tenant", tenantID, "err", err)
 	}

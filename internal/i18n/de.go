@@ -47,7 +47,7 @@ var de = map[string]string{
 	// Tenant detail
 	"tenant.storage":               "Speicher",
 	"tenant.flash_usage_ok":        "Speicher gemessen und im Cache gespeichert.",
-	"tenant.flash_job_busy":        "Tenant hat bereits einen aktiven Job — neuer Start wurde übersprungen (Lock).",
+	"tenant.flash_job_busy":        "Dieser Dienst hat bereits einen aktiven Job — neuer Start wurde übersprungen.",
 	"tenant.flash_job_queued":      "Backup-Job eingereiht.",
 	"tenant.flash_consent_ok":      "Admin Consent erteilt. Tenant ist aktiv; erstes Exchange-Backup wurde eingereiht.",
 	"tenant.flash_consent_updated": "Admin Consent aktualisiert. Bestehende Zeitpläne und Jobs blieben unverändert.",
@@ -63,7 +63,7 @@ var de = map[string]string{
 	"tenant.tab.snapshots":         "Snapshots",
 	"tenant.tab.pst":               "PST-Exporte",
 	"tenant.schedules":             "Zeitpläne",
-	"tenant.schedules_hint":        "Fehlende Dienste werden automatisch mit Default-Cron angelegt. Leeres Cron-Feld beim Speichern setzt den Default. Pro Tenant läuft höchstens ein Job gleichzeitig.",
+	"tenant.schedules_hint":        "Fehlende Dienste werden automatisch mit Default-Cron angelegt. Leeres Cron-Feld beim Speichern setzt den Default. Pro Dienst läuft höchstens ein Job; unterschiedliche Dienste dürfen parallel laufen.",
 	"tenant.col.service":           "Dienst",
 	"tenant.col.cron":              "Cron",
 	"tenant.col.enabled":           "Aktiv",

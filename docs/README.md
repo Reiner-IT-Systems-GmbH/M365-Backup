@@ -15,7 +15,7 @@ Zielgruppe: Operatoren und Mitentwickler, die das System verstehen oder erweiter
 | 4 | [datenbank.md](datenbank.md) | Control-Plane-Schema, Status-Werte |
 | 5 | [tenants.md](tenants.md) | Anlegen → Consent → Aktiv → Löschen |
 | 6 | [backup-jobs.md](backup-jobs.md) | Runner, Dienste, Progress, Orphans |
-| 7 | [backup-logic.md](backup-logic.md) | Live-Sync, Snapshots, Cron, Tenant-Lock |
+| 7 | [backup-logic.md](backup-logic.md) | Live-Sync, Snapshots, Cron, Service-Lock |
 | 8 | [speicher-kopia.md](speicher-kopia.md) | Layout, Browse, Retention, Restore |
 | 9 | [api-ui.md](api-ui.md) | Auth, Routes, HTMX-Admin |
 | 10 | [benachrichtigungen.md](benachrichtigungen.md) | Events, Kanäle, SSRF-Schutz |
@@ -28,5 +28,5 @@ Install/Deploy-Anleitung bleibt im Root-[README.md](../README.md). Sicherheitshi
 1. **Multi-Tenant Control Plane** — viele Kunden-Tenants, ein Binary, getrennte Kopia-Repos.
 2. **Zwei Inkrement-Ebenen** — Graph-Delta auf Live-Baum + Kopia Content-Addressing.
 3. **Offline-Recovery ohne App** — `repo/` + Tenant-Repo-Passwort reichen für `kopia` CLI.
-4. **Ein aktiver Job pro Tenant** — kein paralleles Schreiben in denselben Sync-/Repo-Baum.
+4. **Ein aktiver Job pro Dienst** — gleiche Services nicht parallel; unterschiedliche Dienste dürfen parallel (Kopia-Writes serialisiert).
 5. **Secrets nie im Repo** — nur Env / verschlüsselt in der DB; siehe Workspace-Regel „No Secrets“.

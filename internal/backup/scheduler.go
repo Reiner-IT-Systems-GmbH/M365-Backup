@@ -7,18 +7,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/robfig/cron/v3"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/tenant"
+	"github.com/robfig/cron/v3"
 )
 
 type Scheduler struct {
-	DB      *db.DB
-	Runner  *Runner
-	Usage   *UsageScanner
-	Log     *slog.Logger
-	cron    *cron.Cron
-	mu      sync.Mutex
+	DB       *db.DB
+	Runner   *Runner
+	Usage    *UsageScanner
+	Log      *slog.Logger
+	cron     *cron.Cron
+	mu       sync.Mutex
 	entryIDs []cron.EntryID
 }
 
@@ -107,7 +107,7 @@ func (s *Scheduler) Reload(ctx context.Context) error {
 			_, err = s.Runner.Enqueue(cctx, sch.TenantID, sch.Service, sch.ID, jobType)
 			if err != nil {
 				if errors.Is(err, ErrTenantBusy) {
-					s.Log.Info("scheduler skip (tenant busy)", "tenant", t.Name, "service", sch.Service)
+					s.Log.Info("scheduler skip (service busy)", "tenant", t.Name, "service", sch.Service)
 				} else {
 					s.Log.Error("enqueue scheduled job", "tenant", t.Name, "service", sch.Service, "err", err)
 					return

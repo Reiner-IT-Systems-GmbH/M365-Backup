@@ -41,11 +41,17 @@ const (
 //
 // Recovery requires the repo/ directory and the tenant repository password — not this app or the DB.
 type Engine struct {
-	snapMu    sync.Mutex
-	snapLists *sync.Map // repoPath -> snapListEntry
+	snapMu       sync.Mutex
+	snapLists    *sync.Map // repoPath -> snapListEntry
+	repoWriteMus sync.Map  // repoPath -> *sync.Mutex (serialize Kopia writes)
 }
 
 func NewEngine() *Engine { return &Engine{} }
+
+func (e *Engine) repoWriteLock(repoPath string) *sync.Mutex {
+	v, _ := e.repoWriteMus.LoadOrStore(repoPath, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
 
 type SnapshotInfo struct {
 	ID         string    `json:"id"`
@@ -103,6 +109,11 @@ func (e *Engine) Snapshot(ctx context.Context, repoPath, password, sourceDir, se
 	if err != nil {
 		return nil, err
 	}
+
+	// Parallel service jobs share one Kopia repo; serialize write sessions.
+	mu := e.repoWriteLock(repoPath)
+	mu.Lock()
+	defer mu.Unlock()
 
 	var info *SnapshotInfo
 	err = e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {

@@ -60,10 +60,11 @@ Dazwischen melden Services über `Progress.Emit` / `SyncJob` (Zähler + Prozent 
 
 Siehe ausführlich [backup-logic.md](backup-logic.md). Kurz:
 
-1. **Enqueue-Check** (`CountActiveJobs`) → `ErrTenantBusy`
+1. **Enqueue-Check** (`CountActiveJobs(tenant, service)`) → `ErrTenantBusy`
 2. **`enqueueMu`** — zwei Cron-Fires sehen nicht gleichzeitig „frei“
-3. **Tenant-Gate** während des Laufs (Belt-and-suspenders)
-4. **Global-Semaphore** über Tenants hinweg
+3. **Service-Gate** während des Laufs (Belt-and-suspenders)
+4. **Kopia Repo-Write-Lock** — parallele Dienste serialisieren Snapshots
+5. **Global-Semaphore** über Tenants hinweg
 
 ## Orphans beim Start
 
@@ -75,7 +76,7 @@ Staging purgen.
 ## Scheduler
 
 - `robfig/cron` lädt enabled Schedules; nur `tenant.Status == active`
-- Busy → Log `scheduler skip (tenant busy)`, `last_run` wird trotzdem gesetzt (kein Cron-Storm)
+- Busy → Log `scheduler skip (service busy)`, `last_run` wird trotzdem gesetzt (kein Cron-Storm)
 - Zusätzlich: Keycheck ~08:00, Usage ~`:15` jede Stunde, Startup-Usage nach ~45 s
 
 ## Pro Dienst — Absicht & Grenzen

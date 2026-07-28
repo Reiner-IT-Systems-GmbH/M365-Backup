@@ -4,7 +4,7 @@
 
 Dieses Dokument beschreibt, wie M365 Backup Daten speichert, inkrementell sichert,
 Jobs plant und Überlappungen verhindert — inkl. **warum** Live-Sync und Snapshots
-nebeneinander liegen und wozu der Tenant-Lock da ist.
+nebeneinander liegen und wozu der Service-Lock da ist.
 
 ## Überblick
 
@@ -78,33 +78,34 @@ Zeiten sind bewusst gestaffelt, damit nicht alle Dienste in derselben Minute feu
 
 ---
 
-## Job-Lock (kein paralleles Backup pro Tenant)
+## Job-Lock (kein paralleles Backup pro Dienst)
 
-**Regel:** Pro Tenant darf höchstens **ein** Job in `queued` oder `running` sein.
+**Regel:** Pro Tenant+Service darf höchstens **ein** Job in `queued` oder `running` sein.
+Unterschiedliche Dienste (z. B. Exchange und OneDrive) dürfen parallel laufen.
 
 ### Warum?
 
-- Exchange/OneDrive schreiben in denselben Tenant-Baum und dasselbe Kopia-Repo.
-- Überlappende Läufe (z. B. stündliches Exchange, während der vorige Lauf noch läuft)
-  erzeugen Lastspitzen, doppelte Graph-Arbeit und riskante parallele Snapshots.
+- Zwei Exchange-Läufe gleichzeitig verdoppeln Graph-Last und schreiben in denselben `sync/exchange`-Baum.
+- Parallele Dienste sind erwünscht (längere Teams-/SharePoint-Läufe sollen Exchange nicht blockieren).
+- Kopia-Schreibzugriffe auf dasselbe Tenant-Repo werden separat serialisiert (Repo-Write-Lock).
 
 ### Umsetzung
 
-1. **Enqueue-Lock** (`Runner.Enqueue`): prüft `CountActiveJobs(tenant)`; wenn > 0 →
-   `ErrTenantBusy` (kein neuer Job).
+1. **Enqueue-Lock** (`Runner.Enqueue`): prüft `CountActiveJobs(tenant, service)`; wenn > 0 →
+   `ErrTenantBusy` (kein neuer Job für diesen Dienst).
 2. **Prozess-Mutex** um den Enqueue-Check, damit zwei Cron-Fires nicht gleichzeitig
    „frei“ sehen.
-3. **Tenant-Gate** während `runJob`: exklusives Mutex pro Tenant für die Laufzeit
+3. **Service-Gate** während `runJob`: exklusives Mutex pro Tenant+Service für die Laufzeit
    (zusätzliche Absicherung).
-4. **Global** `MAX_CONCURRENT_JOBS`: begrenzt parallele Jobs **über alle Tenants**
-   (Semaphore). Default oft `2` — sinnvoll bei mehreren Kunden-Tenants; pro Tenant
-   greift trotzdem der Lock oben.
+4. **Kopia Repo-Write-Lock**: Snapshots/Retention am selben Repo nacheinander.
+5. **Global** `MAX_CONCURRENT_JOBS`: begrenzt parallele Jobs **über alle Tenants**
+   (Semaphore).
 
 ### Verhalten bei Konflikt
 
 | Auslöser | Reaktion |
 |----------|----------|
-| Cron, Tenant busy | Log `scheduler skip (tenant busy)`, kein neuer Job; `last_run` wird gesetzt |
+| Cron, Service busy | Log `scheduler skip (service busy)`, kein neuer Job; `last_run` wird gesetzt |
 | UI „Backup starten“, busy | Redirect `?job=busy`, Hinweis in der UI |
 | Nach Admin-Consent | Nur **Exchange** wird einmal gestartet; andere Dienste folgen über Cron |
 
@@ -113,7 +114,7 @@ Zeiten sind bewusst gestaffelt, damit nicht alle Dienste in derselben Minute feu
 ## Job-Lebenszyklus
 
 ```text
-Enqueue ──► queued ──► (sem + tenant gate) ──► running
+Enqueue ──► queued ──► (sem + service gate) ──► running
                                               │
                     ┌─────────────────────────┼─────────────────────────┐
                     ▼                         ▼                         ▼

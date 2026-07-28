@@ -28,16 +28,17 @@ type Runner struct {
 	MaxConcurrent int
 	Log           *slog.Logger
 
-	sem         chan struct{}
-	mu          sync.Mutex
-	cancels     map[string]context.CancelFunc
-	enqueueMu   sync.Mutex
-	tenantGates sync.Map // tenantID -> *sync.Mutex (serialize runs per tenant)
+	sem          chan struct{}
+	mu           sync.Mutex
+	cancels      map[string]context.CancelFunc
+	enqueueMu    sync.Mutex
+	serviceGates sync.Map // tenantID\0service -> *sync.Mutex (serialize runs per tenant+service)
 }
 
 // ErrTenantBusy is returned when Enqueue is refused because this tenant already
-// has a queued or running job. Prevents overlapping backups on the same repo/sync tree.
-var ErrTenantBusy = errors.New("tenant already has an active backup job")
+// has a queued or running job for the same service (e.g. two Exchange jobs).
+// Different services for the same tenant may run in parallel.
+var ErrTenantBusy = errors.New("service already has an active backup job")
 
 func NewRunner(database *db.DB, tenants *tenant.Manager, reg *Registry, store *storage.Engine, notifier *notification.Service, staging string, maxConc int, log *slog.Logger) *Runner {
 	if maxConc < 1 {
@@ -106,12 +107,12 @@ func (r *Runner) EnqueueParams(ctx context.Context, tenantID, service, scheduleI
 	r.enqueueMu.Lock()
 	defer r.enqueueMu.Unlock()
 
-	n, err := r.DB.CountActiveJobs(ctx, tenantID, "")
+	n, err := r.DB.CountActiveJobs(ctx, tenantID, service)
 	if err != nil {
 		return nil, err
 	}
 	if n > 0 {
-		r.Log.Info("enqueue skipped (tenant busy)", "tenant", tenantID, "service", service, "active", n)
+		r.Log.Info("enqueue skipped (service busy)", "tenant", tenantID, "service", service, "active", n)
 		return nil, ErrTenantBusy
 	}
 
@@ -131,8 +132,9 @@ func (r *Runner) EnqueueParams(ctx context.Context, tenantID, service, scheduleI
 	return job, nil
 }
 
-func (r *Runner) tenantGate(tenantID string) *sync.Mutex {
-	v, _ := r.tenantGates.LoadOrStore(tenantID, &sync.Mutex{})
+func (r *Runner) serviceGate(tenantID, service string) *sync.Mutex {
+	key := tenantID + "\x00" + service
+	v, _ := r.serviceGates.LoadOrStore(key, &sync.Mutex{})
 	return v.(*sync.Mutex)
 }
 
@@ -178,8 +180,8 @@ func (r *Runner) runJob(jobID string) {
 		return
 	}
 
-	// Exclusive per-tenant run lock (belt-and-suspenders vs. enqueue check).
-	gate := r.tenantGate(job.TenantID)
+	// Exclusive per-tenant+service run lock (belt-and-suspenders vs. enqueue check).
+	gate := r.serviceGate(job.TenantID, job.Service)
 	gate.Lock()
 	defer gate.Unlock()
 

@@ -41,7 +41,7 @@ Typical deployment: Debian or Docker Compose + MySQL, bind-mounted snapshot/stag
 - **Multi-tenant** – manage arbitrary Entra ID / Microsoft 365 tenants
 - **Services** – Exchange (EML + delta), OneDrive (delta), Teams / SharePoint (full pull; see [Current status](#current-status-kopia--services)), PST EML-ZIP export
 - **Incremental** – Graph delta tokens in SQLite or MySQL + encrypted **Kopia** repo per tenant (live `sync/` for Exchange/OneDrive)
-- **Scheduler** – cron expressions per tenant/service (`robfig/cron`); defaults auto-created; **one active job per tenant** (lock)
+- **Scheduler** – cron expressions per tenant/service (`robfig/cron`); defaults auto-created; **one active job per service** (different services may run in parallel)
 
 - **Retention** – Smart Recycle (hours/daily/weekly/monthly/yearly) + Kopia GC
 - **Notifications** – SMTP, Pushover, Slack/Teams/generic webhooks (errors, key expiry, restore)
@@ -80,7 +80,7 @@ flowchart TB
 **Data flow:** Scheduler (or UI) enqueues a job → runner pulls changes via Graph delta → writes into a staging directory → creates a [Kopia](https://kopia.io/) snapshot in that tenant’s repo → updates delta tokens in the DB → optional notification.
 
 Design-Intent & Abläufe (Architektur, Secrets, Jobs, Kopia, UI): **[docs/](docs/README.md)**.  
-Kurz zu Live-Sync / Snapshots / Cron / Tenant-Lock: [docs/backup-logic.md](docs/backup-logic.md).
+Kurz zu Live-Sync / Snapshots / Cron / Service-Lock: [docs/backup-logic.md](docs/backup-logic.md).
 
 **Storage:** real Kopia Go library (`github.com/kopia/kopia`). Per tenant: `{KOPIA_ROOT}/{tenant-id}/repo/` (encrypted content-addressable store) plus sibling `sync/` / `exports/` for live trees and PST runs.
 

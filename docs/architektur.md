@@ -58,7 +58,7 @@ und Offline-Recovery kaputtmachen.
 Trigger (Cron / UI / Consent)
     │
     ▼
-Enqueue  ──► Tenant busy? ──► ablehnen (ErrTenantBusy)
+Enqueue  ──► same service busy? ──► ablehnen (ErrTenantBusy)
     │
     ▼
 Graph ziehen (Delta oder Full)

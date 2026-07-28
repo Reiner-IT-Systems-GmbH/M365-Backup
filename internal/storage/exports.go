@@ -30,8 +30,8 @@ type PSTExportRun struct {
 	Files     int       `json:"files"`
 	Bytes     int64     `json:"bytes"`
 	Human     string    `json:"human"`
-	Zips      []string  `json:"zips,omitempty"` // downloadable *.zip basenames
-	Scope     string    `json:"scope,omitempty"`   // all | mailbox | folder
+	Zips      []string  `json:"zips,omitempty"`  // downloadable *.zip basenames
+	Scope     string    `json:"scope,omitempty"` // all | mailbox | folder
 	Mailbox   string    `json:"mailbox,omitempty"`
 	Folder    string    `json:"folder,omitempty"`
 }
@@ -160,6 +160,9 @@ func (e *Engine) ApplySmartRetention(ctx context.Context, repoPath, password str
 	if len(toDelete) == 0 {
 		return 0, nil
 	}
+	mu := e.repoWriteLock(repoPath)
+	mu.Lock()
+	defer mu.Unlock()
 	err = e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {
 		return repo.WriteSession(ctx, rep, repo.WriteSessionOptions{Purpose: "m365-smart-recycle"}, func(ctx context.Context, w repo.RepositoryWriter) error {
 			for _, id := range toDelete {
@@ -195,6 +198,9 @@ func (e *Engine) ApplyRetention(ctx context.Context, repoPath, password string, 
 		return nil
 	}
 	toDelete := snaps[keepN:]
+	mu := e.repoWriteLock(repoPath)
+	mu.Lock()
+	defer mu.Unlock()
 	err = e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {
 		return repo.WriteSession(ctx, rep, repo.WriteSessionOptions{Purpose: "m365-retention"}, func(ctx context.Context, w repo.RepositoryWriter) error {
 			for _, sn := range toDelete {
@@ -311,4 +317,3 @@ func ResolveExchangeFolder(syncRoot, mailbox, folder string) (string, error) {
 	}
 	return target, nil
 }
-

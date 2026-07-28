@@ -47,10 +47,10 @@ Ohne gültiges State → kein Activate.
 
 Nach **erstem** erfolgreichem Consent:
 
-> *Start only Exchange first — tenant lock allows one active job; other services follow via cron.*
+> *Start only Exchange first — other services follow via cron (and may run in parallel with Exchange).*
 
 Warum nur Exchange? Der erste Full-Sync ist oft der schwerste. Andere Dienste starten über ihre
-Default-Crons, ohne den Tenant-Lock zu blockieren.
+Default-Crons und blockieren sich untereinander nicht mehr über einen Tenant-weiten Lock.
 
 **Re-Consent** (Tenant schon `active`): nur Redirect mit Flash — kein erneutes Activate, kein Job-Enqueue.
 Nützlich nach nachträglich ergänzten Graph-Permissions (z. B. `Team.ReadBasic.All`).

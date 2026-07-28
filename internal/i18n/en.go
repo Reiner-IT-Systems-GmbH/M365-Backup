@@ -43,7 +43,7 @@ var en = map[string]string{
 
 	"tenant.storage":               "Storage",
 	"tenant.flash_usage_ok":        "Storage measured and saved to cache.",
-	"tenant.flash_job_busy":        "Tenant already has an active job — new start was skipped (lock).",
+	"tenant.flash_job_busy":        "This service already has an active job — new start was skipped.",
 	"tenant.flash_job_queued":      "Backup job queued.",
 	"tenant.flash_consent_ok":      "Admin consent granted. Tenant is active; first Exchange backup was queued.",
 	"tenant.flash_consent_updated": "Admin consent updated. Existing schedules and jobs were left unchanged.",
@@ -59,7 +59,7 @@ var en = map[string]string{
 	"tenant.tab.snapshots":         "Snapshots",
 	"tenant.tab.pst":               "PST exports",
 	"tenant.schedules":             "Schedules",
-	"tenant.schedules_hint":        "Missing services are created with a default cron. An empty cron field restores the default. At most one job runs per tenant at a time.",
+	"tenant.schedules_hint":        "Missing services are created with a default cron. An empty cron field restores the default. At most one job runs per service; different services may run in parallel.",
 	"tenant.col.service":           "Service",
 	"tenant.col.cron":              "Cron",
 	"tenant.col.enabled":           "Enabled",
