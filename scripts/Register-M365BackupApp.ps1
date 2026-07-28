@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Creates or updates an Entra ID app registration for M365 Backup.
@@ -24,7 +24,7 @@
   Existing Application (client) ID. If set, updates that app instead of creating one.
 
 .PARAMETER SecretValidMonths
-  Client secret lifetime in months (1–24). Default: 24
+  Client secret lifetime in months (1-24). Default: 24
 
 .PARAMETER NewSecret
   When updating an existing app, always create a new client secret.
@@ -184,7 +184,7 @@ if (-not $ctx) {
     throw "Not connected to Microsoft Graph."
 }
 $resolvedTenantId = $ctx.TenantId
-Write-Host "Signed in as $($ctx.Account) · tenant $resolvedTenantId" -ForegroundColor Green
+Write-Host "Signed in as $($ctx.Account) - tenant $resolvedTenantId" -ForegroundColor Green
 
 $graphSp = @(Get-MgServicePrincipal -Filter "appId eq '$GraphAppId'") | Select-Object -First 1
 if (-not $graphSp) {
@@ -300,24 +300,24 @@ if ($needSecret) {
 }
 
 Write-Host ""
-Write-Host "========== M365 Backup — Azure app ==========" -ForegroundColor Yellow
+Write-Host "========== M365 Backup - Azure app ==========" -ForegroundColor Yellow
 Write-Host ("Azure Tenant ID : {0}" -f $resolvedTenantId)
 Write-Host ("Application ID  : {0}" -f $app.AppId)
 if ($secretValue) {
     Write-Host ("Client secret   : {0}" -f $secretValue) -ForegroundColor Magenta
     Write-Host ("Secret expires  : {0:yyyy-MM-dd}" -f ([datetime]$secretExpires))
 } else {
-    Write-Host "Client secret   : (unchanged — pass -NewSecret to rotate)" -ForegroundColor DarkGray
+    Write-Host "Client secret   : (unchanged - pass -NewSecret to rotate)" -ForegroundColor DarkGray
 }
 if ($RedirectUri) {
     Write-Host ("Redirect URI    : {0}" -f $RedirectUri)
 }
 Write-Host "================================================" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "Paste Tenant ID, Application ID, Client secret (and expiry) into M365 Backup → New tenant." -ForegroundColor Cyan
+Write-Host "Paste Tenant ID, Application ID, Client secret (and expiry) into M365 Backup -> New tenant." -ForegroundColor Cyan
 if (-not $secretValue -and -not $createdApp) {
     Write-Host "No new secret was created. Use the existing secret in the backup UI, or re-run with -NewSecret." -ForegroundColor Cyan
 }
-Write-Host "Store the secret offline — it is not shown again." -ForegroundColor Cyan
+Write-Host "Store the secret offline - it is not shown again." -ForegroundColor Cyan
 
 Disconnect-MgGraph | Out-Null
