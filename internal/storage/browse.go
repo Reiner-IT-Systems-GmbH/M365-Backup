@@ -6,16 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type BrowseEntry struct {
-	Name    string `json:"name"`  // display name (e.g. subject for .eml)
-	Path    string `json:"path"`  // relative path inside snapshot (real filename)
-	IsDir   bool   `json:"is_dir"`
-	Size    int64  `json:"size"`
-	Subject string `json:"subject,omitempty"`
-	From    string `json:"from,omitempty"`
-	To      string `json:"to,omitempty"`
+	Name       string    `json:"name"`  // display name (e.g. subject for .eml)
+	Path       string    `json:"path"`  // relative path inside snapshot (real filename)
+	IsDir      bool      `json:"is_dir"`
+	Size       int64     `json:"size"`
+	Subject    string    `json:"subject,omitempty"`
+	From       string    `json:"from,omitempty"`
+	To         string    `json:"to,omitempty"`
+	ReceivedAt time.Time `json:"received_at,omitempty"` // from EML Date header
 }
 
 // EnsureExtracted decrypts the snapshot into cacheDir/<snapshotID>/ once and returns that path.
@@ -64,7 +66,6 @@ func ListBrowseDir(extractRoot, relPath string) ([]BrowseEntry, error) {
 		return nil, err
 	}
 	var out []BrowseEntry
-	fileCount := 0
 	for _, de := range ents {
 		name := de.Name()
 		if name == ".extracted" || name == "BACKUP_META.txt" || name == "SNAPSHOT_ROOT.txt" {
@@ -95,14 +96,8 @@ func ListBrowseDir(extractRoot, relPath string) ([]BrowseEntry, error) {
 			IsDir: false,
 			Size:  info.Size(),
 		}
-		// Filename subject first; header peek only for smaller folders (From/To).
 		enrichBrowseEntryFromName(name, &be)
-		fileCount++
-		if fileCount <= 80 {
-			EnrichEMLEntry(abs, name, &be)
-		} else if be.Name == name || be.Name == "" {
-			be.Name = DisplayNameFor(abs, name)
-		}
+		EnrichEMLEntry(abs, name, &be)
 		out = append(out, be)
 	}
 	sortBrowseEntries(out)
@@ -176,7 +171,21 @@ func SearchBrowse(extractRoot, query string, limit int) ([]BrowseEntry, error) {
 	return out, nil
 }
 
-// OpenBrowseFile returns an absolute path to a file inside an extracted snapshot / live tree.
+// EnrichBrowsePage fills EML headers for entries under a live/extracted root.
+func EnrichBrowsePage(extractRoot string, entries []BrowseEntry) {
+	for i := range entries {
+		e := &entries[i]
+		if e.IsDir || !strings.HasSuffix(strings.ToLower(e.Path), ".eml") {
+			continue
+		}
+		abs, err := OpenBrowseFile(extractRoot, e.Path)
+		if err != nil {
+			continue
+		}
+		EnrichEMLEntry(abs, filepath.Base(e.Path), e)
+	}
+}
+
 func OpenBrowseFile(extractRoot, relPath string) (string, error) {
 	relPath = filepath.Clean("/" + relPath)
 	relPath = strings.TrimPrefix(relPath, "/")

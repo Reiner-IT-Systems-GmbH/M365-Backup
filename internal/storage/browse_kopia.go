@@ -63,6 +63,11 @@ func (e *Engine) ListBrowseSnapshot(ctx context.Context, repoPath, password, sna
 			}
 			be := BrowseEntry{Name: name, Path: p, IsDir: false, Size: sz}
 			enrichBrowseEntryFromName(name, &be)
+			if strings.HasSuffix(strings.ToLower(name), ".eml") {
+				if err := enrichSnapshotEML(ctx, child, name, &be); err == nil {
+					// metadata filled when readable
+				}
+			}
 			out = append(out, be)
 		}
 		return nil
@@ -100,6 +105,31 @@ func (e *Engine) SearchBrowseSnapshot(ctx context.Context, repoPath, password, s
 	}
 	sortBrowseEntries(out)
 	return out, nil
+}
+
+// EnrichSnapshotBrowsePage peeks EML headers for the given snapshot entries.
+func (e *Engine) EnrichSnapshotBrowsePage(ctx context.Context, repoPath, password, snapshotID string, entries []BrowseEntry) error {
+	if err := ValidateSnapshotID(snapshotID); err != nil {
+		return err
+	}
+	return e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {
+		root, err := snapshotRootEntry(ctx, rep, snapshotID)
+		if err != nil {
+			return err
+		}
+		for i := range entries {
+			ent := &entries[i]
+			if ent.IsDir || !strings.HasSuffix(strings.ToLower(ent.Path), ".eml") {
+				continue
+			}
+			fileEnt, err := entryAtRelPath(ctx, root, ent.Path)
+			if err != nil {
+				continue
+			}
+			_ = enrichSnapshotEML(ctx, fileEnt, filepath.Base(ent.Path), ent)
+		}
+		return nil
+	})
 }
 
 // ServeSnapshotFile streams one file from a snapshot to the HTTP response (no full extract).
@@ -261,6 +291,27 @@ func dirHasNoFiles(ctx context.Context, ent fs.Entry) bool {
 	return false
 }
 
+func enrichSnapshotEML(ctx context.Context, ent fs.Entry, fileName string, be *BrowseEntry) error {
+	r, err := openSnapshotFile(ctx, ent)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	EnrichEMLEntryReader(r, fileName, be)
+	return nil
+}
+
+func openSnapshotFile(ctx context.Context, ent fs.Entry) (io.ReadCloser, error) {
+	if f, ok := ent.(fs.StreamingFile); ok {
+		return f.GetReader(ctx)
+	}
+	rf, ok := ent.(fs.File)
+	if !ok {
+		return nil, fmt.Errorf("not a file")
+	}
+	return rf.Open(ctx)
+}
+
 func enrichBrowseEntryFromName(fileName string, be *BrowseEntry) {
 	if be.IsDir || !strings.HasSuffix(strings.ToLower(fileName), ".eml") {
 		return
@@ -335,6 +386,16 @@ func sortBrowseEntries(out []BrowseEntry) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].IsDir != out[j].IsDir {
 			return out[i].IsDir
+		}
+		// Newest mail first when Date headers are present.
+		zi, zj := out[i].ReceivedAt.IsZero(), out[j].ReceivedAt.IsZero()
+		if !zi || !zj {
+			if zi != zj {
+				return !zi // dated entries before undated
+			}
+			if !out[i].ReceivedAt.Equal(out[j].ReceivedAt) {
+				return out[i].ReceivedAt.After(out[j].ReceivedAt)
+			}
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})

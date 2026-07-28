@@ -283,8 +283,9 @@ Create **one app registration** (in your ops tenant or the customer tenant) and 
 
 1. Add tenant in UI (name, Azure tenant ID, client ID, client secret, optional expiry date).
 2. Click **Admin consent** — redirects to Microsoft.
-3. Customer admin approves → callback sets status `active`.
-4. First backup jobs for all four services are enqueued automatically.
+3. Customer admin approves → callback sets status `active` and queues the first Exchange full backup.
+4. Other services follow via their default schedules (cron).
+5. Re-clicking **Admin consent** on an already active tenant only refreshes Graph permissions — no new jobs.
 
 Redirect URI to register:
 

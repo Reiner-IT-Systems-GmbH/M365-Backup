@@ -18,7 +18,7 @@
       {{template "langswitch" .}}
     </nav>
   </header>
-  <main class="wrap">
+  <main class="wrap wrap-browser">
     <h1>{{.L.T "browser.title"}}</h1>
     <p class="muted">{{.L.T "browser.hint"}}
       {{if .Usage}} · {{.L.T "browser.storage_total"}} <strong>{{.Usage.TotalHuman}}</strong>
@@ -35,30 +35,6 @@
         {{end}}
       </div>
     </section>
-
-    {{if .Service}}
-    <section class="browser-versions">
-      <h2>{{.L.T "browser.versions"}} · {{.Service}}</h2>
-      {{if .HasLive}}
-      <a class="version-card {{if eq .Version "live"}}active{{end}}"
-         href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version=live">
-        <strong>{{.L.T "browser.live_title"}}</strong>
-        <span class="muted">{{.L.T "browser.live_hint"}}</span>
-      </a>
-      {{end}}
-      {{range .Versions}}
-      <a class="version-card {{if eq $.Version .ID}}active{{end}}"
-         href="/tenants/{{$.Tenant.ID}}/browser?service={{$.Service}}&amp;version={{.ID}}">
-        <strong>{{fmtTime .CreatedAt "02.01.2006 15:04"}}</strong>
-        <span class="muted"><code>{{.ID}}</code> · {{.Files}} {{$.L.T "browser.files_count"}} · {{.BytesHuman}}</span>
-      </a>
-      {{else}}
-        {{if not .HasLive}}
-        <p class="muted">{{.L.T "browser.no_snapshots"}} {{.Service}}.</p>
-        {{end}}
-      {{end}}
-    </section>
-    {{end}}
 
     {{if and .Service .Version}}
     <section class="browser-files">
@@ -95,15 +71,31 @@
       <p class="muted">{{.L.T "browser.search_results"}} <strong>{{.Query}}</strong> {{.L.T "browser.max_500"}}</p>
       {{end}}
 
-      <table>
+      {{if and .TotalPages (gt .TotalPages 1) (not .Query)}}
+      <div class="pager">
+        <span class="muted">{{.L.T "browser.page_of"}} {{.Page}} / {{.TotalPages}} · {{.Total}} {{.L.T "browser.files_count"}}</span>
+        <span class="pager-links">
+          {{if .HasPrev}}
+          <a class="btn secondary btn-sm" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Path}}&amp;path={{.Path}}{{end}}&amp;page={{.PrevPage}}">← {{.L.T "browser.prev"}}</a>
+          {{end}}
+          {{if .HasNext}}
+          <a class="btn secondary btn-sm" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Path}}&amp;path={{.Path}}{{end}}&amp;page={{.NextPage}}">{{.L.T "browser.next"}} →</a>
+          {{end}}
+        </span>
+      </div>
+      {{end}}
+
+      <table class="{{if eq .Service "exchange"}}mail-table{{end}}">
         <thead>
           <tr>
             <th>{{.L.T "browser.col.subject"}}</th>
             {{if eq .Service "exchange"}}
             <th>{{.L.T "browser.col.from"}}</th>
             <th>{{.L.T "browser.col.to"}}</th>
-            {{end}}
+            <th>{{.L.T "browser.col.received"}}</th>
+            {{else}}
             <th>{{.L.T "browser.col.size"}}</th>
+            {{end}}
             <th></th>
           </tr>
         </thead>
@@ -120,8 +112,10 @@
             {{if eq $.Service "exchange"}}
             <td class="muted eml-meta">{{if not .IsDir}}{{.From}}{{end}}</td>
             <td class="muted eml-meta">{{if not .IsDir}}{{.To}}{{end}}</td>
-            {{end}}
+            <td class="muted eml-date">{{if and (not .IsDir) (not .ReceivedAt.IsZero)}}{{fmtTime .ReceivedAt "02.01.2006 15:04"}}{{end}}</td>
+            {{else}}
             <td>{{if not .IsDir}}{{.Size}}{{end}}</td>
+            {{end}}
             <td>
               {{if not .IsDir}}
               <a class="btn secondary btn-sm" href="/tenants/{{$.Tenant.ID}}/browser/file?service={{$.Service}}&amp;version={{$.Version}}&amp;path={{.Path}}">{{$.L.T "action.download"}}</a>
@@ -135,11 +129,53 @@
         {{end}}
         </tbody>
       </table>
+
+      {{if and .TotalPages (gt .TotalPages 1) (not .Query)}}
+      <div class="pager">
+        <span class="muted">{{.L.T "browser.page_of"}} {{.Page}} / {{.TotalPages}}</span>
+        <span class="pager-links">
+          {{if .HasPrev}}
+          <a class="btn secondary btn-sm" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Path}}&amp;path={{.Path}}{{end}}&amp;page={{.PrevPage}}">← {{.L.T "browser.prev"}}</a>
+          {{end}}
+          {{if .HasNext}}
+          <a class="btn secondary btn-sm" href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version={{.Version}}{{if .Path}}&amp;path={{.Path}}{{end}}&amp;page={{.NextPage}}">{{.L.T "browser.next"}} →</a>
+          {{end}}
+        </span>
+      </div>
+      {{end}}
     </section>
     {{else if .Service}}
     <p class="callout">{{.L.T "browser.pick_version"}}</p>
     {{else}}
     <p class="callout">{{.L.T "browser.pick_service"}}</p>
+    {{end}}
+
+    {{if .Service}}
+    <section class="browser-versions">
+      <h2>{{.L.T "browser.versions"}} · {{.Service}}</h2>
+      <div class="version-timeline" role="list">
+        {{if .HasLive}}
+        <a class="version-node {{if eq .Version "live"}}active{{end}}" role="listitem"
+           href="/tenants/{{.Tenant.ID}}/browser?service={{.Service}}&amp;version=live{{if and (eq .Version "live") .Path}}&amp;path={{.Path}}{{end}}">
+          <span class="version-dot" aria-hidden="true"></span>
+          <strong>{{.L.T "browser.live_title"}}</strong>
+          <span class="muted">{{.L.T "browser.live_hint"}}</span>
+        </a>
+        {{end}}
+        {{range .Versions}}
+        <a class="version-node {{if eq $.Version .ID}}active{{end}}" role="listitem"
+           href="/tenants/{{$.Tenant.ID}}/browser?service={{$.Service}}&amp;version={{.ID}}{{if and (eq $.Version .ID) $.Path}}&amp;path={{$.Path}}{{end}}">
+          <span class="version-dot" aria-hidden="true"></span>
+          <strong>{{fmtTime .CreatedAt "02.01.2006 15:04"}}</strong>
+          <span class="muted"><code>{{.ID}}</code> · {{.Files}} {{$.L.T "browser.files_count"}} · {{.BytesHuman}}</span>
+        </a>
+        {{else}}
+          {{if not .HasLive}}
+          <p class="muted">{{.L.T "browser.no_snapshots"}} {{.Service}}.</p>
+          {{end}}
+        {{end}}
+      </div>
+    </section>
     {{end}}
   </main>
 </body>

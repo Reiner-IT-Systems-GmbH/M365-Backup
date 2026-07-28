@@ -376,7 +376,8 @@ paths:
       summary: Azure admin consent callback
       description: |
         Unauthenticated redirect target registered in the Azure app.
-        On success, tenant status becomes `active` and first full backups are enqueued.
+        First consent: tenant status becomes `active` and an Exchange full backup is enqueued.
+        Re-consent on an already active tenant only confirms updated Graph permissions — no new jobs.
       security: []
       parameters:
         - name: admin_consent

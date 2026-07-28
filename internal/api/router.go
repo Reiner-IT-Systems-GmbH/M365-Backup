@@ -266,9 +266,10 @@ func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "tenant_detail.html", map[string]any{
 		"Tenant": t, "TenantID": id, "Jobs": jobs, "JobCounts": countJobs(jobs),
 		"Schedules": schedules, "Usage": usage, "UsageMeasuredAt": measuredAt,
-		"UsageFlash": r.URL.Query().Get("usage"),
-		"JobFlash":   r.URL.Query().Get("job"),
-		"Retention":  retention,
+		"UsageFlash":   r.URL.Query().Get("usage"),
+		"JobFlash":     r.URL.Query().Get("job"),
+		"ConsentFlash": r.URL.Query().Get("consent"),
+		"Retention":    retention,
 	})
 }
 
@@ -280,8 +281,8 @@ func (s *Server) handleRecoveryForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "tenant_recovery.html", map[string]any{
-		"Tenant": t,
-		"IsNew":  r.URL.Query().Get("new") == "1",
+		"Tenant":   t,
+		"IsNew":    r.URL.Query().Get("new") == "1",
 		"RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
 	})
 }
@@ -666,12 +667,20 @@ func (s *Server) handleBrowser(w http.ResponseWriter, r *http.Request) {
 		_, hasLive = storage.LiveSyncRoot(t.KopiaRepoPath, service)
 	}
 
+	page := 1
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {
+		page = p
+	}
+	const pageSize = 50
+
 	usage, _ := s.cachedUsage(r.Context(), tid)
 	data := map[string]any{
 		"Tenant": t, "Services": services, "Service": service,
 		"Versions": versions, "Version": version, "HasLive": hasLive,
 		"Path": rel, "Parent": "", "Entries": []storage.BrowseEntry{}, "Query": q,
 		"Usage": usage,
+		"Page":  1, "PageSize": pageSize, "Total": 0, "TotalPages": 0,
+		"HasPrev": false, "HasNext": false, "PrevPage": 0, "NextPage": 0,
 	}
 
 	if service != "" && version != "" {
@@ -714,8 +723,41 @@ func (s *Server) handleBrowser(w http.ResponseWriter, r *http.Request) {
 				parent = ""
 			}
 		}
-		data["Entries"] = entries
+		total := len(entries)
+		totalPages := 1
+		if total > 0 {
+			totalPages = (total + pageSize - 1) / pageSize
+		}
+		if page > totalPages {
+			page = totalPages
+		}
+		start := (page - 1) * pageSize
+		end := start + pageSize
+		if start > total {
+			start = total
+		}
+		if end > total {
+			end = total
+		}
+		pageEntries := entries[start:end]
+		if service == "exchange" {
+			if version == "live" {
+				if root, err := s.resolveBrowserRoot(r.Context(), t, service, version); err == nil {
+					storage.EnrichBrowsePage(root, pageEntries)
+				}
+			} else if _, kopiaPass, err := s.Tenants.DecryptSecrets(t); err == nil {
+				_ = s.Store.EnrichSnapshotBrowsePage(r.Context(), t.KopiaRepoPath, kopiaPass, version, pageEntries)
+			}
+		}
+		data["Entries"] = pageEntries
 		data["Parent"] = parent
+		data["Page"] = page
+		data["Total"] = total
+		data["TotalPages"] = totalPages
+		data["HasPrev"] = page > 1
+		data["HasNext"] = page < totalPages
+		data["PrevPage"] = page - 1
+		data["NextPage"] = page + 1
 	}
 
 	s.render(w, r, "browser.html", data)
@@ -1126,6 +1168,16 @@ func (s *Server) handleConsentCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if adminConsent != "True" && adminConsent != "true" {
 		http.Error(w, "consent not granted", 400)
+		return
+	}
+	t, err := s.DB.GetTenant(r.Context(), tenantID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	// Re-consent (e.g. after adding Graph permissions) must not re-activate or enqueue again.
+	if t.Status == "active" {
+		http.Redirect(w, r, "/tenants/"+tenantID+"?consent=updated", http.StatusFound)
 		return
 	}
 	if err := s.Tenants.Activate(r.Context(), tenantID); err != nil {

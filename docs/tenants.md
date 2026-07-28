@@ -40,16 +40,20 @@ Delete (optional)
 - URL: `login.microsoftonline.com/{azureTenant}/adminconsent`
 - `redirect_uri` = `{PUBLIC_BASE_URL}/api/consent/callback`
 - State: HMAC-SHA256 über Master-Key-Material, Payload `{t,e}`, TTL 1 Stunde
+- Button bleibt auch bei Status `active` sichtbar (Permissions nachziehen)
 
 **Gedanke hinter HMAC-State:** Callback darf nicht mit fremder `tenant_id` aktiviert werden.
 Ohne gültiges State → kein Activate.
 
-Nach erfolgreichem Consent:
+Nach **erstem** erfolgreichem Consent:
 
 > *Start only Exchange first — tenant lock allows one active job; other services follow via cron.*
 
 Warum nur Exchange? Der erste Full-Sync ist oft der schwerste. Andere Dienste starten über ihre
 Default-Crons, ohne den Tenant-Lock zu blockieren.
+
+**Re-Consent** (Tenant schon `active`): nur Redirect mit Flash — kein erneutes Activate, kein Job-Enqueue.
+Nützlich nach nachträglich ergänzten Graph-Permissions (z. B. `Team.ReadBasic.All`).
 
 ## Keycheck
 

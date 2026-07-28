@@ -40,6 +40,12 @@
     {{if eq .JobFlash "queued"}}
     <p class="callout">{{.L.T "tenant.flash_job_queued"}}</p>
     {{end}}
+    {{if eq .ConsentFlash "ok"}}
+    <p class="callout">{{.L.T "tenant.flash_consent_ok"}}</p>
+    {{end}}
+    {{if eq .ConsentFlash "updated"}}
+    <p class="callout">{{.L.T "tenant.flash_consent_updated"}}</p>
+    {{end}}
 
     <div class="tenant-quicklinks">
       <details class="quick-menu">
@@ -60,9 +66,7 @@
       <form method="post" action="/tenants/{{.Tenant.ID}}/usage/refresh" class="inline">
         <button type="submit" class="btn secondary">{{.L.T "tenant.measure_storage"}}</button>
       </form>
-      {{if ne .Tenant.Status "active"}}
-      <a class="btn" href="/api/consent/start/{{.Tenant.ID}}">{{.L.T "tenant.admin_consent"}}</a>
-      {{end}}
+      <a class="btn {{if eq .Tenant.Status "active"}}secondary{{end}}" href="/api/consent/start/{{.Tenant.ID}}">{{.L.T "tenant.admin_consent"}}</a>
     </div>
 
     <nav class="tenant-tabs" role="tablist" aria-label="{{.L.T "tenant.tabs_aria"}}">
