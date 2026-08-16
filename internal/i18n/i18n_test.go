@@ -28,6 +28,22 @@ func TestCatalogFallback(t *testing.T) {
 	}
 }
 
+func TestSetCookieFlags(t *testing.T) {
+	rec := httptest.NewRecorder()
+	SetCookie(rec, "en")
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies=%d", len(cookies))
+	}
+	c := cookies[0]
+	if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("flags HttpOnly=%v Secure=%v SameSite=%v", c.HttpOnly, c.Secure, c.SameSite)
+	}
+	if c.Value != EN {
+		t.Fatalf("value=%q", c.Value)
+	}
+}
+
 func TestFromRequestCookie(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.AddCookie(&http.Cookie{Name: CookieName, Value: "en"})

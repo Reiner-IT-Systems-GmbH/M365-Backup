@@ -7,7 +7,7 @@ Package: `internal/api` + embedded `web/` (Templates, Static, OpenAPI).
 | Aspekt | Umsetzung | Gedanke |
 |--------|-----------|---------|
 | Login | Ein gemeinsames `ADMIN_PASSWORD` | Early-OSS: simpel betreibbar |
-| Session | Cookie 24 h, HttpOnly, SameSite=Lax | Secure wenn HTTPS / Public-URL |
+| Session | Cookie 24 h, HttpOnly, Secure, SameSite=Lax | Login: Secure bei HTTPS; Logout/Lang: immer Secure+HttpOnly |
 | Hash | SHA-256, constant-time Compare | Kein Klartext in Session-Store |
 | Rate Limit | 10 Attempts / Minute / IP | Brute-Force dämpfen |
 | Öffentlich | `/login`, `/lang/{de|en}`, `/static/*`, Consent-Callback, `/healthz` | Rest hinter Session |

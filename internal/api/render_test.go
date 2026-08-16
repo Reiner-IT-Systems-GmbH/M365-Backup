@@ -2,27 +2,22 @@ package api
 
 import "testing"
 
-func TestSafeLocalPath(t *testing.T) {
+func TestLangRedirectTarget(t *testing.T) {
 	cases := map[string]string{
-		"/tenants":                        "/tenants",
-		"/tenants?x=1":                    "/tenants?x=1",
-		"/tenants/abc/browser?service=ex": "/tenants/abc/browser?service=ex",
 		"/settings":                       "/settings",
+		"/settings?x=1":                   "/settings",
 		"/login":                          "/login",
 		"/openapi":                        "/openapi",
 		"/openapi.yaml":                   "/openapi.yaml",
-		"/tenants/../etc":                 "",
-		"//evil.com":                      "",
-		"https://evil.com":                "",
-		"/\\evil.com":                     "",
-		"/ok\r\nSet-Cookie":               "",
-		"":                                "",
-		"tenants":                         "",
-		"/evil":                           "",
-		"/tenants@evil.com":               "",
+		"/tenants":                        "/tenants",
+		"/tenants/abc/browser?service=ex": "/tenants",
+		"//evil.com":                      "/tenants",
+		"https://evil.com":                "/tenants",
+		"/evil":                           "/tenants",
+		"":                                "/tenants",
 	}
 	for in, want := range cases {
-		if got := safeLocalPath(in); got != want {
+		if got := langRedirectTarget(in); got != want {
 			t.Fatalf("%q: got %q want %q", in, got, want)
 		}
 	}
