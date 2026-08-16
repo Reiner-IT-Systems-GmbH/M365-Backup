@@ -16,12 +16,12 @@ git clone <repo-url> m365backup
 cd m365backup
 cp .env.example .env
 # Generate MASTER_KEY: openssl rand -base64 32
-# Set ADMIN_PASSWORD (12+ chars)
+# Set ADMIN_USER (default m365adminuser) and ADMIN_PASSWORD (12+ chars)
 go mod download
 go run ./cmd/server
 ```
 
-Open http://localhost:8080 and sign in with `ADMIN_PASSWORD`.
+Open http://localhost:8080 and sign in with `ADMIN_USER` / `ADMIN_PASSWORD`.
 
 ## Tests
 

@@ -21,18 +21,19 @@ type Config struct {
 	KopiaRoot         string
 	StagingRoot       string
 	MasterKey         string
+	AdminUser         string
 	AdminPassword     string
 	MaxConcurrentJobs int
 	ExchangeWorkers   int
 	// DisplayTZ is the IANA zone for UI timestamps (storage stays UTC).
-	DisplayTZ   string
-	DisplayLoc  *time.Location
-	SMTPHost    string
-	SMTPPort    int
+	DisplayTZ    string
+	DisplayLoc   *time.Location
+	SMTPHost     string
+	SMTPPort     int
 	SMTPUsername string
 	SMTPPassword string
-	SMTPFrom    string
-	SMTPTo      []string
+	SMTPFrom     string
+	SMTPTo       []string
 }
 
 func Load() (*Config, error) {
@@ -46,6 +47,7 @@ func Load() (*Config, error) {
 		KopiaRoot:         getenv("KOPIA_ROOT", "./data/kopia"),
 		StagingRoot:       getenv("STAGING_ROOT", "./data/staging"),
 		MasterKey:         os.Getenv("MASTER_KEY"),
+		AdminUser:         getenv("ADMIN_USER", "m365adminuser"),
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		MaxConcurrentJobs: getenvInt("MAX_CONCURRENT_JOBS", 2),
 		ExchangeWorkers:   getenvInt("EXCHANGE_WORKERS", 6),
@@ -68,6 +70,10 @@ func Load() (*Config, error) {
 
 	if cfg.MasterKey == "" {
 		return nil, fmt.Errorf("MASTER_KEY is required (openssl rand -base64 32)")
+	}
+	cfg.AdminUser = normalizeAdminUser(cfg.AdminUser)
+	if cfg.AdminUser == "" {
+		return nil, fmt.Errorf("ADMIN_USER is invalid (use letters, digits, _ or -, 3–64 chars)")
 	}
 	if len(cfg.AdminPassword) < 8 {
 		return nil, fmt.Errorf("ADMIN_PASSWORD is required (min 8 characters)")
@@ -122,6 +128,20 @@ func buildMySQLDSN() string {
 	mc.Loc = time.UTC
 	mc.Params = map[string]string{"charset": "utf8mb4"}
 	return mc.FormatDSN()
+}
+
+func normalizeAdminUser(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if len(s) < 3 || len(s) > 64 {
+		return ""
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return ""
+	}
+	return s
 }
 
 func getenv(k, def string) string {

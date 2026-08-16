@@ -12,6 +12,7 @@ var de = map[string]string{
 	"lang.label":         "Sprache",
 	"action.open":        "Öffnen",
 	"action.save":        "Speichern",
+	"action.delete":      "Löschen",
 	"action.cancel":      "Abbrechen",
 	"action.start":       "Starten",
 	"action.search":      "Suchen",
@@ -27,6 +28,7 @@ var de = map[string]string{
 	// Login
 	"login.title":    "Login · M365 Backup",
 	"login.subtitle": "Admin-Anmeldung",
+	"login.username": "Benutzername",
 	"login.password": "Passwort",
 	"login.submit":   "Anmelden",
 
@@ -242,7 +244,19 @@ var de = map[string]string{
 	"recovery.need_both":      "Repo-Pfad + dieses Passwort",
 
 	// Settings
-	"settings.title":         "Benachrichtigungen",
+	"settings.title":         "Einstellungen",
+	"settings.notify_title":  "Benachrichtigungen",
+	"settings.signed_in":     "Angemeldet als",
+	"settings.tokens_title":  "API-Tokens",
+	"settings.tokens_hint":   "Bearer-Token für /api. Lesen = nur GET. Lesen+Schreiben = alle Methoden. Das Admin-Passwort aus der .env gilt ebenfalls als Schreib-Token.",
+	"settings.token_once":    "Token nur jetzt sichtbar — kopieren und sicher ablegen:",
+	"settings.token_name":    "Name",
+	"settings.token_scope":   "Rechte",
+	"settings.token_prefix":  "Präfix",
+	"settings.token_read":    "Lesen",
+	"settings.token_write":   "Lesen und schreiben",
+	"settings.token_create":  "Token anlegen",
+	"settings.token_delete_confirm": "Token wirklich löschen?",
 	"settings.channel":       "Kanal",
 	"settings.notify_on":     "Benachrichtigen bei (kommagetrennt)",
 	"settings.smtp":          "SMTP",

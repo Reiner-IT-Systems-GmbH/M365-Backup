@@ -4,7 +4,9 @@ info:
   description: |
     JSON API for the self-hosted multi-tenant Microsoft 365 backup control plane.
 
-    Most routes require a valid session cookie (`session`) obtained via `POST /login`.
+    Most routes require a session cookie (`POST /login` with username + password)
+    or `Authorization: Bearer <token>`. Tokens are created under Settings
+    (`read` = GET only, `write` = all methods). `ADMIN_PASSWORD` also works as a write token.
     The consent callback is unauthenticated (Microsoft redirect). Health checks are public.
 
     This software is provided as-is for self-hosted use.
@@ -51,7 +53,7 @@ paths:
       tags: [auth]
       summary: Create admin session
       description: |
-        Form login with `ADMIN_PASSWORD`. Sets an HttpOnly `session` cookie (24h TTL).
+        Form login with `ADMIN_USER` / `ADMIN_PASSWORD`. Sets an HttpOnly `session` cookie (24h TTL).
       security: []
       requestBody:
         required: true
@@ -59,8 +61,11 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
-              required: [password]
+              required: [username, password]
               properties:
+                username:
+                  type: string
+                  example: m365adminuser
                 password:
                   type: string
                   format: password
@@ -411,6 +416,10 @@ components:
       in: cookie
       name: session
       description: "Session token from `POST /login`"
+    BearerToken:
+      type: http
+      scheme: bearer
+      description: "API token from Settings, or ADMIN_PASSWORD. read = GET; write = all methods."
 
   parameters:
     TenantId:
@@ -687,3 +696,4 @@ components:
 
 security:
   - SessionCookie: []
+  - BearerToken: []

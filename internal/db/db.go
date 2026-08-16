@@ -126,6 +126,7 @@ func (d *DB) migrate() error {
 		{4, dir + "/004_retention.sql"},
 		{5, dir + "/005_usage_cache.sql"},
 		{6, dir + "/006_job_params.sql"},
+		{7, dir + "/007_users.sql"},
 	}
 	for _, v := range versions {
 		var n int

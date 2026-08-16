@@ -140,7 +140,7 @@ Default schedules (after consent): Exchange hourly · OneDrive nightly · Teams 
 - Binary `.pst` writer
 - Offsite / S3 Kopia backend; RBAC, audit log, 2FA, Vault
 - Limited automated tests — Graph edge cases and multi-tenant load are under-covered
-- Single shared `ADMIN_PASSWORD` (no per-operator accounts)
+- Single operator user from env (`ADMIN_USER` / `ADMIN_PASSWORD`); extra API tokens in Settings
 
 See [Roadmap](#roadmap) for planned work.
 
@@ -163,12 +163,12 @@ cp .env.example .env
 # Generate a 32-byte master key (base64) — keep this offline as well
 openssl rand -base64 32
 # Put the value in .env as MASTER_KEY=...
-# Set ADMIN_PASSWORD to a strong password (8+ chars)
+# Set ADMIN_USER (default m365adminuser) and ADMIN_PASSWORD (8+ chars)
 
 go run ./cmd/server
 ```
 
-Open http://localhost:8080 and sign in with `ADMIN_PASSWORD`.
+Open http://localhost:8080 and sign in with `ADMIN_USER` / `ADMIN_PASSWORD`. The password also works as a write API token (`Authorization: Bearer …`).
 
 **Never commit `.env`.** Only `.env.example` (placeholders) belongs in git.
 
@@ -255,7 +255,8 @@ Publish artifacts from CI (GitHub/GitLab Releases) and install the same way as �
 | `KOPIA_ROOT` | no | `./data/kopia` | Per-tenant snapshot repos |
 | `STAGING_ROOT` | no | `./data/staging` | Temporary backup staging |
 | `MASTER_KEY` | **yes** | — | Base64 32-byte AES key |
-| `ADMIN_PASSWORD` | **yes** | — | UI password (min 8 chars) |
+| `ADMIN_USER` | no | `m365adminuser` | UI login name |
+| `ADMIN_PASSWORD` | **yes** | — | UI password (min 8 chars); also a write API token |
 | `MAX_CONCURRENT_JOBS` | no | `2` | Max parallel jobs **across tenants** (per tenant: always ≤1, see [docs/backup-logic.md](docs/backup-logic.md)) |
 | `SMTP_*` | no | — | Optional env-level SMTP fallback |
 

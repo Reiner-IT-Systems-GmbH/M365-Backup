@@ -20,6 +20,8 @@ Schema-Migrationen laufen beim Open. MySQL: Duplicate-Column tolerant (DDL auto-
 | `003_job_progress` | `progress_pct`, `progress_message` |
 | `004_retention` | `tenants.retention_json` |
 | `005_usage_cache` | `tenant_usage` |
+| `006_job_params` | `jobs.params` |
+| `007_users` | users, api_tokens (bcrypt, Bearer-Scopes) |
 
 ## Kern-Entities
 

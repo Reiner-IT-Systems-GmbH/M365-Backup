@@ -16,10 +16,51 @@
       <a href="/settings">{{.L.T "nav.settings"}}</a>
       <a href="/openapi">{{.L.T "nav.api"}}</a>
       {{template "langswitch" .}}
+      <form method="post" action="/logout" class="inline"><button type="submit">{{.L.T "nav.logout"}}</button></form>
     </nav>
   </header>
   <main class="wrap narrow">
     <h1>{{.L.T "settings.title"}}</h1>
+    {{if .Username}}<p class="muted">{{.L.T "settings.signed_in"}} <strong>{{.Username}}</strong></p>{{end}}
+
+    <section id="tokens" class="usage-panel" style="margin:1.25rem 0">
+      <h2>{{.L.T "settings.tokens_title"}}</h2>
+      <p class="muted">{{.L.T "settings.tokens_hint"}}</p>
+      {{if .NewToken}}
+      <p class="callout">{{.L.T "settings.token_once"}}<br><code class="recovery-secret">{{.NewToken}}</code></p>
+      {{end}}
+      {{if .Tokens}}
+      <table class="compact">
+        <thead><tr><th>{{.L.T "settings.token_name"}}</th><th>{{.L.T "settings.token_scope"}}</th><th>{{.L.T "settings.token_prefix"}}</th><th></th></tr></thead>
+        <tbody>
+        {{range .Tokens}}
+          <tr>
+            <td>{{.Name}}{{if eq .Kind "env"}} <span class="badge">env</span>{{end}}</td>
+            <td><span class="badge">{{.Scope}}</span></td>
+            <td><code>{{.Prefix}}</code></td>
+            <td>
+              {{if eq .Kind "user"}}
+              <form method="post" action="/settings/tokens/{{.ID}}/delete" class="inline" data-confirm="{{$.L.T "settings.token_delete_confirm"}}" onsubmit="return confirm(this.dataset.confirm)">
+                <button type="submit" class="btn-stop">{{.L.T "action.delete"}}</button>
+              </form>
+              {{end}}
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{end}}
+      <form method="post" action="/settings/tokens" class="stack-form" style="margin-top:1rem">
+        <label>{{.L.T "settings.token_name"}} <input name="name" placeholder="ci" required></label>
+        <fieldset class="backup-mode">
+          <legend class="sr-only">{{.L.T "settings.token_scope"}}</legend>
+          <label class="backup-mode-opt"><input type="radio" name="scope" value="read"><span>{{.L.T "settings.token_read"}}</span></label>
+          <label class="backup-mode-opt"><input type="radio" name="scope" value="write" checked><span>{{.L.T "settings.token_write"}}</span></label>
+        </fieldset>
+        <button type="submit">{{.L.T "settings.token_create"}}</button>
+      </form>
+    </section>
+    <h2>{{.L.T "settings.notify_title"}}</h2>
     {{if .Settings}}
     <ul class="plain">
       {{range .Settings}}

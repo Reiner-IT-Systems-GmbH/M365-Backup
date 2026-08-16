@@ -58,6 +58,7 @@ services:
       KOPIA_ROOT: /data/kopia
       STAGING_ROOT: /data/staging
       MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY in .env}
+      ADMIN_USER: ${ADMIN_USER:-m365adminuser}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}
       EXCHANGE_WORKERS: ${EXCHANGE_WORKERS:-6}

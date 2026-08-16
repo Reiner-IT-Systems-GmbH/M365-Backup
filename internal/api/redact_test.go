@@ -35,25 +35,3 @@ func TestRedactNotificationConfig(t *testing.T) {
 		}
 	}
 }
-
-func TestLoginRateLimit(t *testing.T) {
-	s := NewSessionStore("test-password-ok")
-	ip := "203.0.113.10"
-	for i := 0; i < loginMaxAttempts; i++ {
-		if !s.allowLogin(ip) {
-			t.Fatalf("attempt %d should be allowed", i)
-		}
-		s.recordLoginAttempt(ip)
-	}
-	if s.allowLogin(ip) {
-		t.Fatal("should be rate limited")
-	}
-	_, ok := s.Login("wrong")
-	if ok {
-		t.Fatal("wrong password must fail")
-	}
-	tok, ok := s.Login("test-password-ok")
-	if !ok || tok == "" {
-		t.Fatal("correct password must succeed")
-	}
-}

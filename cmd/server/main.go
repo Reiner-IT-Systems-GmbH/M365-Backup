@@ -107,9 +107,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	sessions := api.NewSessionStore(database)
+	if err := api.EnsureBootstrapAuth(context.Background(), database, cfg.AdminUser, cfg.AdminPassword); err != nil {
+		log.Error("bootstrap auth", "err", err)
+		os.Exit(1)
+	}
+	log.Info("admin user ready", "user", cfg.AdminUser)
+
 	srv := &api.Server{
 		Cfg: cfg, DB: database, Tenants: tenants, Runner: runner, Sched: sched,
-		Store: store, Notifier: notifier, Sessions: api.NewSessionStore(cfg.AdminPassword),
+		Store: store, Notifier: notifier, Sessions: sessions,
 		Usage: usageScan, Templates: tmpl, Static: staticRoot, OpenAPI: web.OpenAPI, Log: log,
 	}
 

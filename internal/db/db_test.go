@@ -55,3 +55,36 @@ func TestTenantAndDeltaToken(t *testing.T) {
 		t.Fatal("empty service must be rejected")
 	}
 }
+
+func TestUserAndAPIToken(t *testing.T) {
+	database, err := db.Open(db.Options{Driver: db.DriverSQLite, SQLitePath: filepath.Join(t.TempDir(), "u.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	u, err := database.UpsertUser(ctx, "m365adminuser", "hash-1")
+	if err != nil || u.Username != "m365adminuser" {
+		t.Fatalf("upsert: %v %+v", err, u)
+	}
+	u2, err := database.UpsertUser(ctx, "m365adminuser", "hash-2")
+	if err != nil || u2.ID != u.ID || u2.PasswordHash != "hash-2" {
+		t.Fatalf("update: %v %+v", err, u2)
+	}
+	if err := database.UpsertEnvToken(ctx, u.ID, "ADMIN_PASSWORD", "password", "write"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InsertAPIToken(ctx, &db.APIToken{
+		UserID: u.ID, Name: "ci", Kind: "user", TokenHash: "abc", Prefix: "m365_ab…", Scope: "read",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := database.ListAPITokens(ctx, u.ID)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list=%d err=%v", len(list), err)
+	}
+	got, err := database.GetAPITokenByHash(ctx, "abc")
+	if err != nil || got.Name != "ci" {
+		t.Fatalf("by hash: %v %+v", err, got)
+	}
+}

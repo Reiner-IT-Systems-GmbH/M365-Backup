@@ -93,6 +93,8 @@ func (s *Server) Router() http.Handler {
 	r.Get("/tenants/{id}/snapshots/{snapID}/file", s.handleSnapshotFile)
 	r.Get("/settings", s.handleSettings)
 	r.Post("/settings/notifications", s.handleSaveNotifications)
+	r.Post("/settings/tokens", s.handleCreateToken)
+	r.Post("/settings/tokens/{tid}/delete", s.handleDeleteToken)
 	r.Get("/openapi", s.handleOpenAPIPage)
 	r.Get("/openapi.yaml", s.handleOpenAPISpec)
 
@@ -116,7 +118,11 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "login.html", nil)
+	user := "m365adminuser"
+	if s.Cfg != nil && s.Cfg.AdminUser != "" {
+		user = s.Cfg.AdminUser
+	}
+	s.render(w, r, "login.html", map[string]any{"DefaultUser": user})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +132,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
-	token, ok := s.Sessions.Login(r.FormValue("password"))
+	token, ok := s.Sessions.Login(r.Context(), r.FormValue("username"), r.FormValue("password"))
 	if !ok {
 		s.Sessions.recordLoginAttempt(ip)
 		http.Error(w, "invalid password", http.StatusUnauthorized)
@@ -309,7 +315,8 @@ func (s *Server) handleRecoveryExport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many attempts", http.StatusTooManyRequests)
 		return
 	}
-	if !s.Sessions.CheckPassword(r.FormValue("admin_password")) {
+	p := PrincipalFrom(r.Context())
+	if p == nil || !s.Sessions.VerifyUserPassword(r.Context(), p.UserID, r.FormValue("admin_password")) {
 		s.Sessions.recordLoginAttempt(ip)
 		s.render(w, r, "tenant_recovery.html", map[string]any{
 			"Tenant": t, "RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
@@ -1174,8 +1181,63 @@ func (s *Server) graphUploadRestore(ctx context.Context, t *db.Tenant, service, 
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	s.renderSettings(w, r, "")
+}
+
+func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, newToken string) {
 	settings, _ := s.DB.ListNotificationSettings(r.Context())
-	s.render(w, r, "settings.html", map[string]any{"Settings": settings})
+	p := PrincipalFrom(r.Context())
+	var tokens []db.APIToken
+	username := ""
+	if p != nil {
+		username = p.Username
+		tokens, _ = s.DB.ListAPITokens(r.Context(), p.UserID)
+	}
+	s.render(w, r, "settings.html", map[string]any{
+		"Settings": settings, "Tokens": tokens, "Username": username, "NewToken": newToken,
+	})
+}
+
+func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
+	p := PrincipalFrom(r.Context())
+	if p == nil || p.Scope != scopeWrite {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	_ = r.ParseForm()
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		name = "api"
+	}
+	scope := strings.TrimSpace(r.FormValue("scope"))
+	if scope != scopeRead {
+		scope = scopeWrite
+	}
+	plain, err := newAPITokenPlain()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	err = s.DB.InsertAPIToken(r.Context(), &db.APIToken{
+		UserID: p.UserID, Name: name, Kind: "user",
+		TokenHash: hashAPIToken(plain), Prefix: tokenPrefix(plain), Scope: scope,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	s.renderSettings(w, r, plain)
+}
+
+func (s *Server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
+	p := PrincipalFrom(r.Context())
+	if p == nil || p.Scope != scopeWrite {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	tid := chi.URLParam(r, "tid")
+	_ = s.DB.DeleteAPIToken(r.Context(), p.UserID, tid)
+	http.Redirect(w, r, "/settings#tokens", http.StatusFound)
 }
 
 func (s *Server) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {

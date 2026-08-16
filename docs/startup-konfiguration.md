@@ -6,7 +6,7 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 
 ```text
 1. godotenv.Load()          optional .env (Dev/Compose)
-2. config.Load()            fail-fast ohne MASTER_KEY / ADMIN_PASSWORD
+2. config.Load()            fail-fast ohne MASTER_KEY / ADMIN_PASSWORD; legt ADMIN_USER an
 3. crypto.New(MasterKey)    AES-256-GCM Cipher
 4. db.Open(...)             SQLite oder MySQL + Migrations
 5. MkdirAll(KopiaRoot, StagingRoot)  Mode 0700
@@ -37,7 +37,8 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 | `HTTP_ADDR` | `:8080` | Listen-Adresse |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Consent-Redirect, Secure-Cookie-Flag |
 | `MASTER_KEY` | — | **Pflicht**, base64 → genau 32 Bytes |
-| `ADMIN_PASSWORD` | — | **Pflicht**, min. 8 Zeichen |
+| `ADMIN_USER` | `m365adminuser` | Login-Name (Buchstaben, Ziffern, `_`/`-`) |
+| `ADMIN_PASSWORD` | — | **Pflicht**, min. 8 Zeichen; gilt auch als Write-API-Token |
 | `DB_DRIVER` | `sqlite` | `sqlite` oder `mysql` |
 | `DATABASE_PATH` | `./data/m365backup.db` | SQLite-Datei |
 | `MYSQL_DSN` / `MYSQL_*` | — | MySQL (Compose/Prod) |

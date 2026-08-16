@@ -37,6 +37,7 @@ Use placeholders such as `<YOUR_CLIENT_SECRET>` in docs and `.env.example` only.
 ## Operational Hardening
 
 - Store `MASTER_KEY` and `ADMIN_PASSWORD` only in environment variables or a secrets manager
+- Admin passwords are stored with bcrypt; API tokens are hashed (SHA-256) except the env password-as-token which is verified via bcrypt
 - Restrict filesystem permissions on `DATABASE_PATH` and `KOPIA_ROOT`
 - Keep Azure app registrations with least-privilege Graph permissions
 - Rotate client secrets before expiry (the app notifies on upcoming expiry)
