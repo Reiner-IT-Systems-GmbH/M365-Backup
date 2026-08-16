@@ -26,27 +26,58 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 
 func (s *Server) handleSetLang(w http.ResponseWriter, r *http.Request) {
 	i18n.SetCookie(w, chi.URLParam(r, "lang"))
-	next := safeLocalPath(r.URL.Query().Get("next"))
-	if next == "" {
+	raw := strings.TrimSpace(r.URL.Query().Get("next"))
+	if raw == "" {
 		if ref := r.Referer(); ref != "" {
-			if u, err := url.Parse(ref); err == nil {
-				next = safeLocalPath(u.RequestURI())
+			if ru, err := url.Parse(ref); err == nil {
+				raw = ru.RequestURI()
 			}
 		}
 	}
-	if next == "" {
-		next = "/tenants"
+	// Parse + empty host/scheme in this function so CodeQL go/unvalidated-url-redirection
+	// sees a sanitizer on the same value that reaches Redirect.
+	u, err := url.Parse(raw)
+	if err != nil || u.IsAbs() || u.Host != "" || u.Scheme != "" || u.Opaque != "" || u.User != nil {
+		http.Redirect(w, r, "/tenants", http.StatusFound)
+		return
 	}
-	http.Redirect(w, r, next, http.StatusFound)
+	if !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.ContainsAny(u.Path, "\\\r\n") || strings.Contains(u.Path, "..") {
+		http.Redirect(w, r, "/tenants", http.StatusFound)
+		return
+	}
+	if !isAppLocalPath(u.Path) {
+		http.Redirect(w, r, "/tenants", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, u.RequestURI(), http.StatusFound)
 }
 
 func safeLocalPath(p string) string {
 	p = strings.TrimSpace(p)
-	if p == "" || !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") {
+	u, err := url.Parse(p)
+	if err != nil || u.IsAbs() || u.Host != "" || u.Scheme != "" || u.Opaque != "" || u.User != nil {
 		return ""
 	}
-	if strings.Contains(p, "://") || strings.ContainsAny(p, "\r\n") {
+	if !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.ContainsAny(u.Path, "\\\r\n") || strings.Contains(u.Path, "..") {
 		return ""
 	}
-	return p
+	if !isAppLocalPath(u.Path) {
+		return ""
+	}
+	return u.RequestURI()
+}
+
+func isAppLocalPath(path string) bool {
+	switch {
+	case path == "/tenants", strings.HasPrefix(path, "/tenants/"):
+		return true
+	case path == "/settings", strings.HasPrefix(path, "/settings/"):
+		return true
+	case path == "/login":
+		return true
+	case path == "/openapi", path == "/openapi.yaml", strings.HasPrefix(path, "/openapi/"):
+		return true
+	default:
+		return false
+	}
 }
