@@ -78,7 +78,14 @@ func (r *Runner) PurgeStaging() {
 	}
 	removed := 0
 	for _, e := range entries {
-		path := filepath.Join(r.StagingRoot, e.Name())
+		path, err := storage.EnsureSubpath(r.StagingRoot, e.Name())
+		if err != nil {
+			continue
+		}
+		path, err = storage.GuardPath(path)
+		if err != nil {
+			continue
+		}
 		if err := os.RemoveAll(path); err != nil {
 			r.Log.Warn("purge staging: remove", "path", path, "err", err)
 			continue
@@ -90,11 +97,26 @@ func (r *Runner) PurgeStaging() {
 	}
 }
 
+func (r *Runner) stagingJobDir(jobID string) (string, error) {
+	if r.StagingRoot == "" {
+		return "", fmt.Errorf("invalid path")
+	}
+	if _, err := storage.GuardPath(jobID); err != nil {
+		return "", err
+	}
+	return storage.EnsureSubpath(r.StagingRoot, jobID)
+}
+
 func (r *Runner) cleanStagingJob(jobID string) {
-	if r.StagingRoot == "" || jobID == "" {
+	path, err := r.stagingJobDir(jobID)
+	if err != nil {
 		return
 	}
-	_ = os.RemoveAll(filepath.Join(r.StagingRoot, jobID))
+	path, err = storage.GuardPath(path)
+	if err != nil {
+		return
+	}
+	_ = os.RemoveAll(path)
 }
 
 func (r *Runner) Enqueue(ctx context.Context, tenantID, service, scheduleID, jobType string) (*db.Job, error) {
@@ -237,7 +259,16 @@ func (r *Runner) runJob(jobID string) {
 		_ = clientSecret
 	}
 
-	stageDir := filepath.Join(r.StagingRoot, job.ID)
+	stageDir, err := r.stagingJobDir(job.ID)
+	if err != nil {
+		r.fail(ctx, job, err)
+		return
+	}
+	stageDir, err = storage.GuardPath(stageDir)
+	if err != nil {
+		r.fail(ctx, job, err)
+		return
+	}
 	_ = os.RemoveAll(stageDir)
 	if err := os.MkdirAll(stageDir, 0o700); err != nil {
 		r.fail(ctx, job, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -88,5 +89,37 @@ func TestDefaultCronFor(t *testing.T) {
 	expr, ok := tenant.DefaultCronFor("exchange")
 	if !ok || expr != "0 * * * *" {
 		t.Fatalf("got %q ok=%v", expr, ok)
+	}
+}
+
+func TestCleanStagingJobRejectsTraversal(t *testing.T) {
+	dir := t.TempDir()
+	staging := filepath.Join(dir, "stage")
+	outside := filepath.Join(dir, "outside.txt")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{StagingRoot: staging, Log: slog.Default()}
+	r.cleanStagingJob("../outside.txt")
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("path outside staging must not be removed: %v", err)
+	}
+}
+
+func TestCleanStagingJobRemovesJobDir(t *testing.T) {
+	dir := t.TempDir()
+	staging := filepath.Join(dir, "stage")
+	jobID := "11111111-2222-3333-4444-555555555555"
+	jobDir := filepath.Join(staging, jobID)
+	if err := os.MkdirAll(jobDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{StagingRoot: staging, Log: slog.Default()}
+	r.cleanStagingJob(jobID)
+	if _, err := os.Stat(jobDir); !os.IsNotExist(err) {
+		t.Fatalf("job staging dir should be removed, err=%v", err)
 	}
 }

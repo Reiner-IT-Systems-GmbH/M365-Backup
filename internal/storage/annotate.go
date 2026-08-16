@@ -40,10 +40,20 @@ func FilterByService(snaps []SnapshotInfo, service string) []SnapshotInfo {
 
 // LiveSyncRoot returns the persistent sync directory for a service, if it exists.
 func LiveSyncRoot(repoPath, service string) (string, bool) {
+	if _, err := GuardPath(repoPath); err != nil {
+		return "", false
+	}
 	service = strings.ToLower(strings.TrimSpace(service))
 	switch service {
 	case "exchange", "onedrive":
-		p := filepath.Join(repoPath, "sync", service)
+		p, err := EnsureSubpath(repoPath, filepath.Join("sync", service))
+		if err != nil {
+			return "", false
+		}
+		p, err = GuardPath(p)
+		if err != nil {
+			return "", false
+		}
 		st, err := os.Stat(p)
 		if err != nil || !st.IsDir() {
 			return "", false
