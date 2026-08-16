@@ -9,7 +9,7 @@
 Single Go binary · Graph API delta sync · encrypted snapshots · HTMX admin UI · Apache 2.0
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
 ---
 
@@ -147,7 +147,7 @@ See [Roadmap](#roadmap) for planned work.
 
 ## Requirements
 
-- Go 1.22+ (build) or a released binary
+- Go 1.26+ (build) or a released binary
 - Linux recommended (Debian 12/13 for production)
 - Disk for snapshot repos (e.g. `/var/lib/m365backup` or Apollo mount)
 - Azure app registration **per tenant** with application permissions (see below)

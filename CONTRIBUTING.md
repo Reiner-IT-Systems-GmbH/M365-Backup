@@ -41,7 +41,7 @@ gitleaks detect --source . --verbose
 
 ## Code style
 
-- Go 1.22+; format with `gofmt`
+- Go 1.26+; format with `gofmt`
 - Keep packages under `internal/` unless something must be public API
 - Fail fast on missing `MASTER_KEY` / `ADMIN_PASSWORD`
 - Never log decrypted secrets or tokens
