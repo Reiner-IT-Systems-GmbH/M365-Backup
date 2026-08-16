@@ -26,6 +26,44 @@ func TestDirIsVacant(t *testing.T) {
 	}
 }
 
+func TestListBrowseDirRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ok.eml"), []byte("Subject: x\r\n\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ListBrowseDir(root, ".."); err == nil {
+		t.Fatal("expected error for ..")
+	}
+	unsafeRoot := root + string(os.PathSeparator) + ".." + string(os.PathSeparator) + filepath.Base(root)
+	if _, err := ListBrowseDir(unsafeRoot, ""); err == nil {
+		t.Fatal("expected error for root with ..")
+	}
+	ents, err := ListBrowseDir(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) != 1 || ents[0].Name != "ok.eml" && ents[0].Subject != "x" {
+		t.Fatalf("ents=%+v", ents)
+	}
+}
+
+func TestOpenBrowseFileRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ok.eml"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenBrowseFile(root, "../"+filepath.Base(root)+"/ok.eml"); err == nil {
+		t.Fatal("expected error for .. in rel path")
+	}
+	got, err := OpenBrowseFile(root, "ok.eml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(got) != "ok.eml" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestEnrichBrowseEntryFromName(t *testing.T) {
 	be := BrowseEntry{Name: "Hello_World__abc123.eml"}
 	enrichBrowseEntryFromName(be.Name, &be)

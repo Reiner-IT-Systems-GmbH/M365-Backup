@@ -182,6 +182,10 @@ func (e *Engine) Restore(ctx context.Context, repoPath, password, snapshotID, de
 	if err := ValidateSnapshotID(snapshotID); err != nil {
 		return err
 	}
+	destDir, err := GuardPath(destDir)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
 		return err
 	}

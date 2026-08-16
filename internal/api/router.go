@@ -71,6 +71,7 @@ func (s *Server) Router() http.Handler {
 	r.Post("/tenants", s.handleTenantCreate)
 	r.Get("/tenants/{id}", s.handleTenantDetail)
 	r.Post("/tenants/{id}/usage/refresh", s.handleUsageRefreshOne)
+	r.Post("/tenants/{id}/backup", s.handleTriggerBackups)
 	r.Post("/tenants/{id}/backup/{service}", s.handleTriggerBackup)
 	r.Post("/tenants/{id}/schedules/{sid}", s.handleUpdateSchedule)
 	r.Post("/tenants/{id}/retention", s.handleUpdateRetention)
@@ -786,7 +787,7 @@ func (s *Server) handleBrowserFile(w http.ResponseWriter, r *http.Request) {
 		}
 		name := storage.DisplayNameFor(abs, filepath.Base(abs))
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
-		http.ServeFile(w, r, abs)
+		s.serveGuardedFile(w, r, abs)
 		return
 	}
 	if err := storage.ValidateSnapshotID(version); err != nil {
@@ -816,6 +817,70 @@ func (s *Server) resolveBrowserRoot(ctx context.Context, t *db.Tenant, service, 
 		return root, nil
 	}
 	return "", fmt.Errorf("snapshot browse uses Kopia virtual FS; use ListBrowseSnapshot")
+}
+
+var backupStartServices = map[string]bool{
+	"exchange":   true,
+	"onedrive":   true,
+	"teams":      true,
+	"sharepoint": true,
+}
+
+func (s *Server) handleTriggerBackups(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, err := s.DB.GetTenant(r.Context(), id); err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	_ = r.ParseForm()
+	mode := strings.TrimSpace(r.FormValue("mode"))
+	if mode != "full" {
+		mode = "delta"
+	}
+	seen := map[string]bool{}
+	var services []string
+	for _, raw := range r.Form["service"] {
+		svc := strings.ToLower(strings.TrimSpace(raw))
+		if !backupStartServices[svc] || seen[svc] {
+			continue
+		}
+		seen[svc] = true
+		services = append(services, svc)
+	}
+	if len(services) == 0 {
+		http.Redirect(w, r, "/tenants/"+id+"?job=none", http.StatusFound)
+		return
+	}
+	if mode == "full" {
+		for _, svc := range services {
+			if err := s.DB.DeleteDeltaTokens(r.Context(), id, svc); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+		}
+	}
+	queued, busy := 0, 0
+	for _, svc := range services {
+		_, err := s.Runner.Enqueue(r.Context(), id, svc, "", mode)
+		if errors.Is(err, backup.ErrTenantBusy) {
+			busy++
+			continue
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		queued++
+	}
+	if queued == 0 && busy > 0 {
+		http.Redirect(w, r, "/tenants/"+id+"?job=busy", http.StatusFound)
+		return
+	}
+	flash := "queued"
+	if mode == "full" {
+		flash = "full"
+	}
+	http.Redirect(w, r, "/tenants/"+id+"?job="+flash, http.StatusFound)
 }
 
 func (s *Server) handleTriggerBackup(w http.ResponseWriter, r *http.Request) {
@@ -920,14 +985,18 @@ func (s *Server) handlePSTExportDownload(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "not found", 404)
 		return
 	}
-	if strings.Contains(runID, "..") || strings.Contains(file, "..") || strings.Contains(file, "/") || strings.Contains(file, "\\") {
+	if strings.Contains(file, "/") || strings.Contains(file, "\\") {
 		http.Error(w, "invalid path", 400)
 		return
 	}
-	path := filepath.Join(storage.PSTExportRoot(t.KopiaRepoPath), runID, file)
 	root := storage.PSTExportRoot(t.KopiaRepoPath)
-	rel, err := filepath.Rel(root, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	path, err := storage.EnsureSubpath(root, filepath.Join(runID, file))
+	if err != nil {
+		http.Error(w, "invalid path", 400)
+		return
+	}
+	path, err = storage.GuardPath(path)
+	if err != nil {
 		http.Error(w, "invalid path", 400)
 		return
 	}
@@ -938,7 +1007,7 @@ func (s *Server) handlePSTExportDownload(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file))
-	http.ServeFile(w, r, path)
+	s.serveGuardedFile(w, r, path)
 }
 
 func atoiDefault(s string, def int) int {
@@ -989,6 +1058,11 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	work, err = storage.GuardPath(work)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	_ = os.MkdirAll(work, 0o700)
 	defer func() { _ = os.RemoveAll(work) }()
 
@@ -1024,7 +1098,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", snapID+".zip"))
-	http.ServeFile(w, r, zipPath)
+	s.serveGuardedFile(w, r, zipPath)
 }
 
 func (s *Server) graphUploadRestore(ctx context.Context, t *db.Tenant, service, dest string) error {
@@ -1064,6 +1138,10 @@ func (s *Server) graphUploadRestore(ctx context.Context, t *db.Tenant, service, 
 		return err
 	}
 	for _, fpath := range files {
+		fpath, err := storage.GuardPath(fpath)
+		if err != nil {
+			continue
+		}
 		rel, _ := filepath.Rel(root, fpath)
 		data, err := os.ReadFile(fpath)
 		if err != nil {
@@ -1409,6 +1487,15 @@ func rewriteOpenAPIServers(spec []byte, baseURL string) []byte {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (s *Server) serveGuardedFile(w http.ResponseWriter, r *http.Request, path string) {
+	path, err := storage.GuardPath(path)
+	if err != nil {
+		http.Error(w, "invalid path", 400)
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 
 func splitCSV(s string) []string {

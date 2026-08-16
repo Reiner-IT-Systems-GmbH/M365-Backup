@@ -109,6 +109,22 @@ func TestPeekEMLMetaRFC2047(t *testing.T) {
 	}
 }
 
+func TestPeekEMLMetaRejectsTraversal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "msg.eml")
+	if err := os.WriteFile(path, []byte("Subject: secret\r\n\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Keep ".." in the string — filepath.Join would clean it away.
+	unsafe := path + string(os.PathSeparator) + ".." + string(os.PathSeparator) + filepath.Base(path)
+	if meta := PeekEMLMeta(unsafe); meta.Subject != "" {
+		t.Fatalf("traversal path leaked subject %q", meta.Subject)
+	}
+	if meta := PeekEMLMeta(dir); meta.Subject != "" {
+		t.Fatal("directory must not be opened as EML")
+	}
+}
+
 func TestEnrichKeepsFilenameSubjectWhenHeadersMissing(t *testing.T) {
 	dir := t.TempDir()
 	name := "Nur_Betreff__abcdef1234.eml"

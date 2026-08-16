@@ -10,8 +10,8 @@ import (
 )
 
 type BrowseEntry struct {
-	Name       string    `json:"name"`  // display name (e.g. subject for .eml)
-	Path       string    `json:"path"`  // relative path inside snapshot (real filename)
+	Name       string    `json:"name"` // display name (e.g. subject for .eml)
+	Path       string    `json:"path"` // relative path inside snapshot (real filename)
 	IsDir      bool      `json:"is_dir"`
 	Size       int64     `json:"size"`
 	Subject    string    `json:"subject,omitempty"`
@@ -51,15 +51,17 @@ func (e *Engine) EnsureExtracted(ctx context.Context, repoPath, password, snapsh
 
 // ListBrowseDir lists one directory level under an extracted snapshot or live sync tree.
 func ListBrowseDir(extractRoot, relPath string) ([]BrowseEntry, error) {
-	relPath = filepath.Clean("/" + relPath)
-	relPath = strings.TrimPrefix(relPath, "/")
-	dir := extractRoot
-	if relPath != "" && relPath != "." {
-		var err error
-		dir, err = EnsureSubpath(extractRoot, relPath)
-		if err != nil {
-			return nil, err
-		}
+	if strings.Contains(extractRoot, "..") || strings.Contains(relPath, "..") {
+		return nil, fmt.Errorf("invalid subpath")
+	}
+	relPath = normalizeBrowseRel(relPath)
+	dir, err := safeBrowsePath(extractRoot, relPath)
+	if err != nil {
+		return nil, err
+	}
+	dir, err = GuardPath(dir)
+	if err != nil {
+		return nil, err
 	}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -113,8 +115,16 @@ func SearchBrowse(extractRoot, query string, limit int) ([]BrowseEntry, error) {
 	if limit <= 0 {
 		limit = 500
 	}
+	root, err := safeBrowsePath(extractRoot, "")
+	if err != nil {
+		return nil, err
+	}
+	root, err = GuardPath(root)
+	if err != nil {
+		return nil, err
+	}
 	var out []BrowseEntry
-	err := filepath.Walk(extractRoot, func(path string, info os.FileInfo, walkErr error) error {
+	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
@@ -187,12 +197,18 @@ func EnrichBrowsePage(extractRoot string, entries []BrowseEntry) {
 }
 
 func OpenBrowseFile(extractRoot, relPath string) (string, error) {
-	relPath = filepath.Clean("/" + relPath)
-	relPath = strings.TrimPrefix(relPath, "/")
-	if relPath == "" || relPath == "." {
+	if strings.Contains(extractRoot, "..") || strings.Contains(relPath, "..") {
+		return "", fmt.Errorf("invalid subpath")
+	}
+	relPath = normalizeBrowseRel(relPath)
+	if relPath == "" {
 		return "", fmt.Errorf("not a file")
 	}
-	abs, err := EnsureSubpath(extractRoot, relPath)
+	abs, err := safeBrowsePath(extractRoot, relPath)
+	if err != nil {
+		return "", err
+	}
+	abs, err = GuardPath(abs)
 	if err != nil {
 		return "", err
 	}
@@ -208,7 +224,33 @@ func OpenBrowseFile(extractRoot, relPath string) (string, error) {
 
 // dirIsVacant is a cheap empty-dir check: no immediate non-meta children.
 // Avoids walking multi-GB mailbox trees (previous dirHasAnyFile).
+// safeBrowsePath resolves rel under root and rejects traversal / NUL.
+func safeBrowsePath(root, rel string) (string, error) {
+	if root == "" || strings.Contains(root, "\x00") || strings.Contains(root, "..") {
+		return "", fmt.Errorf("invalid subpath")
+	}
+	rel = normalizeBrowseRel(rel)
+	if strings.Contains(rel, "\x00") || strings.Contains(rel, "..") {
+		return "", fmt.Errorf("invalid subpath")
+	}
+	if rel == "" {
+		rel = "."
+	}
+	target, err := EnsureSubpath(root, rel)
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(target, "..") {
+		return "", fmt.Errorf("invalid subpath")
+	}
+	return target, nil
+}
+
 func dirIsVacant(root string) bool {
+	root, err := GuardPath(root)
+	if err != nil {
+		return true
+	}
 	ents, err := os.ReadDir(root)
 	if err != nil || len(ents) == 0 {
 		return true

@@ -290,6 +290,10 @@ func ResolveExchangeMailbox(syncRoot, mailbox string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ungültiges Postfach")
 	}
+	target, err = GuardPath(target)
+	if err != nil {
+		return "", fmt.Errorf("ungültiges Postfach")
+	}
 	st, err := os.Stat(target)
 	if err != nil || !st.IsDir() {
 		return "", fmt.Errorf("Postfach nicht gefunden: %s", mailbox)
@@ -308,6 +312,10 @@ func ResolveExchangeFolder(syncRoot, mailbox, folder string) (string, error) {
 		return "", fmt.Errorf("ungültiger Ordner")
 	}
 	target, err := EnsureSubpath(mbDir, folder)
+	if err != nil {
+		return "", fmt.Errorf("ungültiger Ordner")
+	}
+	target, err = GuardPath(target)
 	if err != nil {
 		return "", fmt.Errorf("ungültiger Ordner")
 	}

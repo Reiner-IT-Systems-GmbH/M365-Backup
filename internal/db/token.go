@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +48,16 @@ func (d *DB) GetDeltaToken(ctx context.Context, tenantID, service, userID string
 		return "", err
 	}
 	return token, nil
+}
+
+// DeleteDeltaTokens drops all Graph delta links for one tenant+service so the
+// next job starts a full sync instead of an incremental delta.
+func (d *DB) DeleteDeltaTokens(ctx context.Context, tenantID, service string) error {
+	if tenantID == "" || service == "" {
+		return fmt.Errorf("tenant and service required")
+	}
+	_, err := d.SQL.ExecContext(ctx, `DELETE FROM delta_tokens WHERE tenant_id=? AND service=?`, tenantID, service)
+	return err
 }
 
 type NotificationSetting struct {

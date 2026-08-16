@@ -22,6 +22,11 @@ func (e *Engine) ListBrowseSnapshot(ctx context.Context, repoPath, password, sna
 	if err := ValidateSnapshotID(snapshotID); err != nil {
 		return nil, err
 	}
+	if relPath != "" {
+		if _, err := GuardPath(relPath); err != nil {
+			return nil, err
+		}
+	}
 	var out []BrowseEntry
 	err := e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {
 		root, err := snapshotRootEntry(ctx, rep, snapshotID)
@@ -135,6 +140,9 @@ func (e *Engine) EnrichSnapshotBrowsePage(ctx context.Context, repoPath, passwor
 // ServeSnapshotFile streams one file from a snapshot to the HTTP response (no full extract).
 func (e *Engine) ServeSnapshotFile(ctx context.Context, repoPath, password, snapshotID, relPath string, w http.ResponseWriter) error {
 	if err := ValidateSnapshotID(snapshotID); err != nil {
+		return err
+	}
+	if _, err := GuardPath(relPath); err != nil {
 		return err
 	}
 	relPath = normalizeBrowseRel(relPath)
@@ -262,6 +270,9 @@ func entryAtRelPath(ctx context.Context, root fs.Entry, relPath string) (fs.Entr
 	for _, part := range strings.Split(rel, "/") {
 		if part == "" || part == "." {
 			continue
+		}
+		if part == ".." || strings.Contains(part, "..") {
+			return nil, fmt.Errorf("invalid path")
 		}
 		dir, ok := cur.(fs.Directory)
 		if !ok {

@@ -32,6 +32,32 @@ func TestValidateSnapshotID(t *testing.T) {
 	}
 }
 
+func TestGuardPath(t *testing.T) {
+	ok, err := GuardPath("/data/kopia/t/sync/exchange/Inbox/a.eml")
+	if err != nil || ok == "" {
+		t.Fatalf("ok path: %v", err)
+	}
+	for _, p := range []string{"", "/tmp/foo/../etc/passwd", "a\x00b", ".."} {
+		if _, err := GuardPath(p); err == nil {
+			t.Fatalf("%q: expected error", p)
+		}
+	}
+}
+
+func TestEnsureSubpathRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	if _, err := EnsureSubpath(root, "../outside"); err == nil {
+		t.Fatal("expected error")
+	}
+	got, err := EnsureSubpath(root, "Inbox/a.eml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Join(root, "Inbox", "a.eml") {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestSnapshotFileRejectsTraversal(t *testing.T) {
 	repo := t.TempDir()
 	_, err := SnapshotFile(repo, "../../../etc/passwd", ".snap")

@@ -26,7 +26,8 @@ RBAC, 2FA, Audit-Log sind bewusst noch nicht da (Roadmap).
 |-------|--------|
 | `/tenants`, `/tenants/new` | Liste, Anlegen, Recovery zeigen |
 | `/tenants/{id}` | Tabs: Jobs, Settings, Statistik, Snapshots, PST |
-| `POST …/backup/{service}` | Job enqueuen; bei Busy Redirect `?job=busy` |
+| `POST …/backup` | Popup: `mode=full\|delta` + Dienste; Voll löscht Delta-Tokens |
+| `POST …/backup/{service}` | Einzel-Job (PST-Export); bei Busy Redirect `?job=busy` |
 | `…/jobs/{id}/live`, Cancel | HTMX Live-Fortschritt |
 | Browser / File | Live-Sync oder Snapshot-VFS |
 | Restore | ZIP oder Graph-Upload |

@@ -40,6 +40,12 @@
     {{if eq .JobFlash "queued"}}
     <p class="callout">{{.L.T "tenant.flash_job_queued"}}</p>
     {{end}}
+    {{if eq .JobFlash "full"}}
+    <p class="callout">{{.L.T "tenant.flash_job_full"}}</p>
+    {{end}}
+    {{if eq .JobFlash "none"}}
+    <p class="callout">{{.L.T "tenant.flash_job_none"}}</p>
+    {{end}}
     {{if eq .ConsentFlash "ok"}}
     <p class="callout">{{.L.T "tenant.flash_consent_ok"}}</p>
     {{end}}
@@ -48,19 +54,42 @@
     {{end}}
 
     <div class="tenant-quicklinks">
-      <details class="quick-menu">
-        <summary class="btn">{{.L.T "tenant.start_backup"}}</summary>
-        <div class="quick-menu-panel">
-          <p class="muted quick-menu-hint">{{.L.T "tenant.start_backup_hint"}}</p>
-          <div class="row gap wrap">
-            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/exchange"><button type="submit">Exchange</button></form>
-            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/onedrive"><button type="submit">OneDrive</button></form>
-            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/teams"><button type="submit">Teams</button></form>
-            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/sharepoint"><button type="submit">SharePoint</button></form>
-            <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst"><button type="submit" class="btn secondary">{{.L.T "tenant.pst_export"}}</button></form>
+      <button type="button" class="btn" id="backup-open" aria-haspopup="dialog" aria-controls="backup-dialog">{{.L.T "tenant.start_backup"}}</button>
+      <dialog id="backup-dialog" class="backup-dialog">
+        <form method="post" action="/tenants/{{.Tenant.ID}}/backup" class="backup-form" id="backup-form">
+          <div class="backup-dialog-head">
+            <h2>{{.L.T "tenant.start_backup"}}</h2>
+            <button type="button" class="backup-dialog-close" id="backup-close" aria-label="{{.L.T "action.cancel"}}">×</button>
           </div>
-        </div>
-      </details>
+          <fieldset class="backup-mode">
+            <legend class="sr-only">{{.L.T "tenant.backup_mode"}}</legend>
+            <label class="backup-mode-opt">
+              <input type="radio" name="mode" value="full">
+              <span>{{.L.T "tenant.backup_full"}}</span>
+            </label>
+            <label class="backup-mode-opt">
+              <input type="radio" name="mode" value="delta" checked>
+              <span>{{.L.T "tenant.backup_delta"}}</span>
+            </label>
+          </fieldset>
+          <fieldset class="backup-services">
+            <legend>{{.L.T "tenant.backup_services"}}</legend>
+            <label class="backup-svc"><input type="checkbox" name="service" value="exchange" checked> {{.L.T "tenant.svc.exchange"}}</label>
+            <label class="backup-svc"><input type="checkbox" name="service" value="onedrive"> {{.L.T "tenant.svc.onedrive"}}</label>
+            <label class="backup-svc"><input type="checkbox" name="service" value="teams"> {{.L.T "tenant.svc.teams"}}</label>
+            <label class="backup-svc"><input type="checkbox" name="service" value="sharepoint"> {{.L.T "tenant.svc.sharepoint"}}</label>
+          </fieldset>
+          <p class="muted backup-hint backup-hint-delta">{{.L.T "tenant.backup_hint_delta"}}</p>
+          <p class="muted backup-hint backup-hint-full">{{.L.T "tenant.backup_hint_full"}}</p>
+          <div class="backup-dialog-actions">
+            <button type="button" class="btn secondary" id="backup-cancel">{{.L.T "action.cancel"}}</button>
+            <button type="submit">{{.L.T "action.start"}}</button>
+          </div>
+        </form>
+      </dialog>
+      <form method="post" action="/tenants/{{.Tenant.ID}}/backup/pst" class="inline">
+        <button type="submit" class="btn secondary">{{.L.T "tenant.pst_export"}}</button>
+      </form>
       <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/browser">{{.L.T "nav.browser"}}</a>
       <a class="btn secondary" href="/tenants/{{.Tenant.ID}}/restore">{{.L.T "nav.restore"}}</a>
       <form method="post" action="/tenants/{{.Tenant.ID}}/usage/refresh" class="inline">
@@ -255,6 +284,18 @@
   </main>
   <script>
   (function () {
+    var dlg = document.getElementById("backup-dialog");
+    var openBtn = document.getElementById("backup-open");
+    function closeBackup() { if (dlg && dlg.open) dlg.close(); }
+    if (dlg && openBtn) {
+      openBtn.addEventListener("click", function () { dlg.showModal(); });
+      ["backup-close", "backup-cancel"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener("click", closeBackup);
+      });
+      dlg.addEventListener("click", function (e) { if (e.target === dlg) closeBackup(); });
+    }
+
     var valid = { jobs: 1, einstellungen: 1, statistiken: 1, snapshots: 1, "pst-exports": 1 };
     var chartsBuilt = false;
 

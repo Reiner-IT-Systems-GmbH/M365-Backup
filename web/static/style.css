@@ -277,25 +277,60 @@ section { margin: 2rem 0; }
   gap: .65rem;
   margin: 1.25rem 0 1rem;
 }
-.quick-menu { position: relative; }
-.quick-menu > summary {
-  list-style: none;
-  cursor: pointer;
-}
-.quick-menu > summary::-webkit-details-marker { display: none; }
-.quick-menu-panel {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + .45rem);
-  left: 0;
-  min-width: min(420px, 92vw);
-  padding: 1rem 1.1rem;
-  border-radius: 12px;
+.backup-dialog {
   border: 1px solid var(--border);
+  border-radius: 14px;
   background: var(--panel);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .35);
+  color: var(--text);
+  padding: 0;
+  width: min(440px, calc(100vw - 2rem));
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .45);
 }
-.quick-menu-hint { margin: 0 0 .75rem; font-size: .85rem; }
+.backup-dialog::backdrop { background: rgba(7, 11, 16, .65); }
+.backup-form { display: grid; gap: 1rem; padding: 1.1rem 1.2rem 1.2rem; }
+.backup-dialog-head {
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+}
+.backup-dialog-head h2 { margin: 0; font-size: 1.15rem; }
+.backup-dialog-close {
+  background: transparent; border: 0; color: var(--muted);
+  font-size: 1.4rem; line-height: 1; padding: .15rem .4rem; cursor: pointer;
+}
+.backup-dialog-close:hover { color: var(--text); }
+.backup-mode {
+  display: grid; grid-template-columns: 1fr 1fr; gap: .4rem;
+  margin: 0; padding: .3rem; border: 1px solid var(--border); border-radius: 10px;
+  background: #0b1016;
+}
+.backup-mode-opt {
+  display: block; margin: 0; color: var(--text); cursor: pointer;
+}
+.backup-mode-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.backup-mode-opt span {
+  display: block; text-align: center; padding: .5rem .7rem; border-radius: 8px;
+  font-weight: 600;
+}
+.backup-mode-opt input:checked + span { background: var(--accent); color: #fff; }
+.backup-mode-opt input:focus-visible + span { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.backup-services {
+  display: grid; gap: .45rem; margin: 0; padding: 0; border: 0;
+}
+.backup-services legend {
+  padding: 0; margin: 0 0 .35rem; color: var(--muted); font-size: .85rem; font-weight: 560;
+}
+.backup-svc {
+  display: flex; align-items: center; gap: .55rem;
+  margin: 0; color: var(--text); font-size: .95rem; cursor: pointer;
+}
+.backup-svc input[type="checkbox"] {
+  width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--accent);
+}
+.backup-hint { margin: 0; font-size: .85rem; line-height: 1.45; }
+.backup-form:has(input[name="mode"][value="full"]:checked) .backup-hint-delta { display: none; }
+.backup-form:has(input[name="mode"][value="delta"]:checked) .backup-hint-full { display: none; }
+.backup-dialog-actions {
+  display: flex; justify-content: flex-end; gap: .55rem; margin-top: .15rem;
+}
 .tenant-tabs {
   display: flex;
   flex-wrap: wrap;

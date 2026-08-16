@@ -36,4 +36,22 @@ func TestTenantAndDeltaToken(t *testing.T) {
 	if err != nil || tok != "tok-1" {
 		t.Fatalf("token=%q err=%v", tok, err)
 	}
+	if err := database.UpsertDeltaToken(context.Background(), db.DeltaToken{
+		TenantID: ten.ID, Service: "onedrive", UserID: "u1", Token: "od-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DeleteDeltaTokens(context.Background(), ten.ID, "exchange"); err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := database.GetDeltaToken(context.Background(), ten.ID, "exchange", "u1"); err == nil || tok != "" {
+		t.Fatalf("exchange token should be gone, got %q err=%v", tok, err)
+	}
+	od, err := database.GetDeltaToken(context.Background(), ten.ID, "onedrive", "u1")
+	if err != nil || od != "od-1" {
+		t.Fatalf("onedrive token should remain, got %q err=%v", od, err)
+	}
+	if err := database.DeleteDeltaTokens(context.Background(), ten.ID, ""); err == nil {
+		t.Fatal("empty service must be rejected")
+	}
 }

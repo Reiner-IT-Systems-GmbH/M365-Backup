@@ -63,12 +63,29 @@ func PeekEMLSubject(absPath string) string {
 
 // PeekEMLMeta reads Subject/From/To/Cc/Date from the EML header block.
 func PeekEMLMeta(absPath string) EMLMeta {
-	f, err := os.Open(absPath)
+	f, err := openRegularFile(absPath)
 	if err != nil {
 		return EMLMeta{}
 	}
 	defer f.Close()
 	return PeekEMLMetaReader(f)
+}
+
+// openRegularFile opens a regular file after rejecting traversal / NUL.
+// The `..` check is the sanitizer CodeQL go/path-injection looks for at this sink.
+func openRegularFile(absPath string) (*os.File, error) {
+	absPath, err := GuardPath(absPath)
+	if err != nil {
+		return nil, os.ErrInvalid
+	}
+	st, err := os.Lstat(absPath)
+	if err != nil {
+		return nil, err
+	}
+	if !st.Mode().IsRegular() {
+		return nil, os.ErrInvalid
+	}
+	return os.Open(absPath)
 }
 
 // PeekEMLMetaReader parses headers from an EML stream (stops after headers).
