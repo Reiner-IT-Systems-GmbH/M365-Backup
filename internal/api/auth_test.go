@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rhw/m365backup/internal/db"
@@ -41,6 +42,12 @@ func TestBootstrapLoginAndBearer(t *testing.T) {
 	if !ok || p.Via != "password" || p.Scope != scopeWrite {
 		t.Fatalf("password-as-token %+v ok=%v", p, ok)
 	}
+	if _, ok := s.Login(ctx, "", "test-password-ok"); !ok {
+		t.Fatal("password-only login (Usage-Sync / scripts) must still work")
+	}
+	if _, ok := s.Login(ctx, "", "wrong"); ok {
+		t.Fatal("empty user + wrong password")
+	}
 }
 
 func TestAPITokenScopes(t *testing.T) {
@@ -75,6 +82,22 @@ func TestAPITokenScopes(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/tenants", nil)
 	if allowScope(req, p) {
 		t.Fatal("read POST should fail")
+	}
+}
+
+func TestReadLoginCredentials(t *testing.T) {
+	form := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("password=secret-pass"))
+	form.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	u, p := readLoginCredentials(form)
+	if u != "" || p != "secret-pass" {
+		t.Fatalf("form password-only: user=%q pass=%q", u, p)
+	}
+
+	js := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"password":"json-pass"}`))
+	js.Header.Set("Content-Type", "application/json")
+	u, p = readLoginCredentials(js)
+	if u != "" || p != "json-pass" {
+		t.Fatalf("json password-only: user=%q pass=%q", u, p)
 	}
 }
 

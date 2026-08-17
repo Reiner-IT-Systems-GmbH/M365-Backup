@@ -129,14 +129,32 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "login.html", map[string]any{"DefaultUser": user})
 }
 
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+func readLoginCredentials(r *http.Request) (username, password string) {
+	ct := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.Contains(ct, "application/json") {
+		var body struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		return strings.TrimSpace(body.Username), body.Password
+	}
 	_ = r.ParseForm()
+	user := strings.TrimSpace(r.FormValue("username"))
+	if user == "" {
+		user = strings.TrimSpace(r.FormValue("user"))
+	}
+	return user, r.FormValue("password")
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if !s.Sessions.allowLogin(ip) {
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
-	token, ok := s.Sessions.Login(r.Context(), r.FormValue("username"), r.FormValue("password"))
+	user, pass := readLoginCredentials(r)
+	token, ok := s.Sessions.Login(r.Context(), user, pass)
 	if !ok {
 		s.Sessions.recordLoginAttempt(ip)
 		http.Error(w, "invalid password", http.StatusUnauthorized)

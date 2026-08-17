@@ -139,8 +139,19 @@ func (s *SessionStore) recordLoginAttempt(ip string) {
 }
 
 func (s *SessionStore) Login(ctx context.Context, username, password string) (token string, ok bool) {
-	u, err := s.verifyUser(ctx, username, password)
-	if err != nil {
+	username = strings.TrimSpace(username)
+	var u *db.User
+	if username == "" {
+		// Scripts (Usage-Sync etc.) still POST only password, as before the user field existed.
+		u = s.userByPassword(ctx, password)
+	} else {
+		var err error
+		u, err = s.verifyUser(ctx, username, password)
+		if err != nil {
+			return "", false
+		}
+	}
+	if u == nil {
 		return "", false
 	}
 	token = uuid.NewString()
@@ -148,6 +159,23 @@ func (s *SessionStore) Login(ctx context.Context, username, password string) (to
 	s.sessions[token] = sessionInfo{UserID: u.ID, Username: u.Username, Expires: time.Now().Add(s.ttl)}
 	s.mu.Unlock()
 	return token, true
+}
+
+func (s *SessionStore) userByPassword(ctx context.Context, password string) *db.User {
+	if s.DB == nil || password == "" {
+		return nil
+	}
+	users, err := s.DB.ListUsers(ctx)
+	if err != nil {
+		return nil
+	}
+	for i := range users {
+		if CheckPasswordHash(users[i].PasswordHash, password) {
+			return &users[i]
+		}
+	}
+	_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"), []byte(password))
+	return nil
 }
 
 func (s *SessionStore) verifyUser(ctx context.Context, username, password string) (*db.User, error) {
@@ -207,15 +235,8 @@ func (s *SessionStore) AuthenticateBearer(ctx context.Context, raw string) (*Pri
 		return &Principal{UserID: u.ID, Username: u.Username, Scope: tok.Scope, Via: "token"}, true
 	}
 	// ADMIN_PASSWORD also works as a write token (env bootstrap).
-	users, err := s.DB.ListUsers(ctx)
-	if err != nil {
-		return nil, false
-	}
-	for i := range users {
-		u := &users[i]
-		if CheckPasswordHash(u.PasswordHash, raw) {
-			return &Principal{UserID: u.ID, Username: u.Username, Scope: scopeWrite, Via: "password"}, true
-		}
+	if u := s.userByPassword(ctx, raw); u != nil {
+		return &Principal{UserID: u.ID, Username: u.Username, Scope: scopeWrite, Via: "password"}, true
 	}
 	return nil, false
 }

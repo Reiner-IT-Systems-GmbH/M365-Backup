@@ -53,7 +53,8 @@ paths:
       tags: [auth]
       summary: Create admin session
       description: |
-        Form login with `ADMIN_USER` / `ADMIN_PASSWORD`. Sets an HttpOnly `session` cookie (24h TTL).
+        Form or JSON login. `username` is optional — scripts may send only `password`
+        (matches `ADMIN_PASSWORD`, same as before the username field). Sets an HttpOnly `session` cookie (24h TTL).
       security: []
       requestBody:
         required: true
@@ -61,11 +62,21 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
-              required: [username, password]
+              required: [password]
               properties:
                 username:
                   type: string
                   example: m365adminuser
+                password:
+                  type: string
+                  format: password
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                username:
+                  type: string
                 password:
                   type: string
                   format: password
