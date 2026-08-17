@@ -3,6 +3,7 @@ package i18n
 var de = map[string]string{
 	// Nav / common
 	"nav.tenants":        "Tenants",
+	"nav.jobs":           "Jobs",
 	"nav.settings":       "Einstellungen",
 	"nav.api":            "API",
 	"nav.logout":         "Abmelden",
@@ -160,6 +161,12 @@ var de = map[string]string{
 	"jobs.no_detail_log": "Kein Detail-Log (Job vor Einführung der job_logs-Tabelle, oder noch leer).",
 	"jobs.bytes":         "Bytes",
 	"jobs.snapshot":      "Snapshot",
+	"jobs.overview_title": "Laufende Jobs",
+	"jobs.overview_hint":  "Alle Tenants. Die Liste aktualisiert sich automatisch.",
+	"jobs.overview_empty": "Gerade läuft kein Backup.",
+	"jobs.overview_recent": "Zuletzt",
+	"jobs.type_full":      "Voll",
+	"jobs.type_delta":     "Inkrementell",
 
 	// Snapshots / PST partials
 	"snapshots.files":   "Dateien",

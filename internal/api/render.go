@@ -37,6 +37,8 @@ func langRedirectTarget(next string) string {
 	switch next {
 	case "/settings":
 		return "/settings"
+	case "/jobs":
+		return "/jobs"
 	case "/login":
 		return "/login"
 	case "/openapi":

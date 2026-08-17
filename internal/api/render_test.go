@@ -6,6 +6,7 @@ func TestLangRedirectTarget(t *testing.T) {
 	cases := map[string]string{
 		"/settings":                       "/settings",
 		"/settings?x=1":                   "/settings",
+		"/jobs":                           "/jobs",
 		"/login":                          "/login",
 		"/openapi":                        "/openapi",
 		"/openapi.yaml":                   "/openapi.yaml",

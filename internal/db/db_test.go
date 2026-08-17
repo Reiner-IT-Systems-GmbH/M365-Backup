@@ -129,3 +129,36 @@ func TestOneActiveJobPerService(t *testing.T) {
 		t.Fatalf("after success, new exchange job must be allowed: %v", err)
 	}
 }
+
+func TestListActiveAndRecentJobs(t *testing.T) {
+	database, err := db.Open(db.Options{Driver: db.DriverSQLite, SQLitePath: filepath.Join(t.TempDir(), "jobs.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	ten := &db.Tenant{
+		Name: "Acme", AzureTenantID: "33333333-3333-3333-3333-333333333333",
+		ClientID: "cid", ClientSecret: "enc-placeholder", KopiaPassword: "enc-kopia",
+		KopiaRepoPath: "/tmp/kopia/z", Status: "active",
+	}
+	if err := database.CreateTenant(ctx, ten); err != nil {
+		t.Fatal(err)
+	}
+	run := &db.Job{TenantID: ten.ID, Service: "exchange", JobType: "full", Status: "running"}
+	done := &db.Job{TenantID: ten.ID, Service: "onedrive", JobType: "delta", Status: "success"}
+	if err := database.CreateJob(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateJob(ctx, done); err != nil {
+		t.Fatal(err)
+	}
+	active, err := database.ListActiveJobs(ctx)
+	if err != nil || len(active) != 1 || active[0].ID != run.ID {
+		t.Fatalf("active=%+v err=%v", active, err)
+	}
+	recent, err := database.ListRecentJobs(ctx, 10)
+	if err != nil || len(recent) != 1 || recent[0].ID != done.ID {
+		t.Fatalf("recent=%+v err=%v", recent, err)
+	}
+}

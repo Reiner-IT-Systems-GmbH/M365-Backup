@@ -28,7 +28,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	pages := []string{
 		"login.html", "tenants.html", "tenant_new.html", "settings.html", "openapi.html",
 		"restore.html", "job_detail.html", "browser.html", "tenant_recovery.html",
-		"snapshot_browse.html", "tenant_detail.html", "jobs_partial.html",
+		"snapshot_browse.html", "tenant_detail.html", "jobs.html", "jobs_overview_partial.html", "jobs_partial.html",
 		"job_live_partial.html", "snapshots_partial.html", "pst_exports_partial.html",
 		"pst_folders_partial.html",
 	}
@@ -54,6 +54,9 @@ func TestTemplatesParseAndRender(t *testing.T) {
 				"Service":     "exchange",
 				"Version":     "live",
 				"HasLive":     true,
+				"JobCounts": struct {
+					Running, Queued, Success, Warning, Error, Cancelled int
+				}{},
 			}
 			if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 				t.Fatalf("%s/%s: %v", lang, name, err)

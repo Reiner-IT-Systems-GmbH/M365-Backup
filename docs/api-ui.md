@@ -24,6 +24,7 @@ RBAC, 2FA, Audit-Log sind bewusst noch nicht da (Roadmap).
 
 | Route | Intent |
 |-------|--------|
+| `/jobs` | Gesamtübersicht: laufende/wartende Jobs aller Tenants (HTMX 5 s) + letzte Läufe |
 | `/tenants`, `/tenants/new` | Liste, Anlegen, Recovery zeigen |
 | `/tenants/{id}` | Tabs: Jobs, Settings, Statistik, Snapshots, PST |
 | `POST …/backup` | Popup: `mode=full\|delta` + Dienste; Voll löscht Delta-Tokens |

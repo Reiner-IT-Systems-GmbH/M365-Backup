@@ -1,0 +1,71 @@
+{{define "jobs_overview_partial.html"}}
+<div class="jobs-wrap">
+  <div class="jobs-stats">
+    <span class="jobs-stat"><span class="badge running">{{.JobCounts.Running}}</span> {{.L.T "jobs.running"}}</span>
+    <span class="jobs-stat"><span class="badge">{{.JobCounts.Queued}}</span> {{.L.T "jobs.queued"}}</span>
+  </div>
+  <div class="jobs-list">
+  {{range .ActiveJobs}}
+    <article class="job-card {{.Status}}">
+      <div class="job-card-main">
+        <div class="job-card-top">
+          <span class="badge {{.Status}}">{{.Status}}</span>
+          <a class="job-tenant" href="/tenants/{{.TenantID}}">{{.TenantName}}</a>
+          <span class="job-svc">{{.Service}}</span>
+          {{if eq .JobType "full"}}<span class="badge">{{$.L.T "jobs.type_full"}}</span>{{else if eq .JobType "delta"}}<span class="muted">{{$.L.T "jobs.type_delta"}}</span>{{end}}
+          <span class="muted job-when">{{fmtTime .CreatedAt "02.01.2006 15:04"}}</span>
+        </div>
+        <div class="progress-mini {{.Status}}">
+          <div class="progress-track">
+            <div class="progress-fill" style="width: {{.ProgressPct}}%"></div>
+          </div>
+          <div class="progress-mini-meta">
+            <span class="progress-pct">{{.ProgressPct}}%</span>
+            <span class="progress-now" title="{{.ProgressMessage}}">{{if .ProgressMessage}}{{.ProgressMessage}}{{else}}…{{end}}</span>
+          </div>
+        </div>
+      </div>
+      <div class="job-card-actions">
+        <a class="btn secondary btn-sm" href="/tenants/{{.TenantID}}/jobs/{{.ID}}">{{$.L.T "jobs.log"}}</a>
+        <form class="inline" method="post" action="/tenants/{{.TenantID}}/jobs/{{.ID}}/cancel?view=overview"
+              hx-post="/tenants/{{.TenantID}}/jobs/{{.ID}}/cancel?view=overview"
+              hx-target="#jobs-overview"
+              hx-swap="innerHTML"
+              data-confirm="{{$.L.T "jobs.confirm_stop"}}"
+              onsubmit="return confirm(this.dataset.confirm);">
+          <button type="submit" class="btn-stop">{{$.L.T "jobs.stop"}}</button>
+        </form>
+      </div>
+    </article>
+  {{else}}
+    <p class="muted">{{.L.T "jobs.overview_empty"}}</p>
+  {{end}}
+  </div>
+
+  {{if .RecentJobs}}
+  <h2 class="jobs-recent-title">{{.L.T "jobs.overview_recent"}}</h2>
+  <div class="jobs-list">
+  {{range .RecentJobs}}
+    <article class="job-card {{.Status}}">
+      <div class="job-card-main">
+        <div class="job-card-top">
+          <span class="badge {{.Status}}">{{.Status}}</span>
+          <a class="job-tenant" href="/tenants/{{.TenantID}}">{{.TenantName}}</a>
+          <span class="job-svc">{{.Service}}</span>
+          {{if eq .JobType "full"}}<span class="badge">{{$.L.T "jobs.type_full"}}</span>{{end}}
+          <span class="muted job-when">{{fmtTime .CreatedAt "02.01.2006 15:04"}}</span>
+        </div>
+        <p class="job-summary" title="{{.ErrorMessage}}">
+          {{if .ErrorMessage}}{{.ErrorMessage}}{{else}}—{{end}}
+          {{if .ItemsNew}} · {{.ItemsNew}} {{$.L.T "jobs.items"}}{{end}}
+        </p>
+      </div>
+      <div class="job-card-actions">
+        <a class="btn secondary btn-sm" href="/tenants/{{.TenantID}}/jobs/{{.ID}}">{{$.L.T "jobs.log"}}</a>
+      </div>
+    </article>
+  {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

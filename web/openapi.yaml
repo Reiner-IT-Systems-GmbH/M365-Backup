@@ -227,6 +227,25 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  "/api/jobs":
+    get:
+      tags: [jobs]
+      summary: List active jobs across all tenants
+      description: Returns queued and running jobs (running first).
+      responses:
+        "200":
+          description: Active job list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+
   "/api/tenants/{id}/jobs":
     get:
       tags: [jobs]

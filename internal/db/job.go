@@ -221,6 +221,42 @@ func (d *DB) FailOrphanedJobs(ctx context.Context, reason string) (int64, error)
 	return res.RowsAffected()
 }
 
+// ListActiveJobs returns queued and running jobs across all tenants
+// (running first, then oldest queued).
+func (d *DB) ListActiveJobs(ctx context.Context) ([]Job, error) {
+	rows, err := d.SQL.QueryContext(ctx, `
+		SELECT id, tenant_id, COALESCE(schedule_id,''), service, job_type, status, started_at, finished_at,
+			items_new, items_total, bytes_transferred, COALESCE(error_message,''), COALESCE(kopia_snapshot,''),
+			progress_pct, COALESCE(progress_message,''), COALESCE(params,''), created_at
+		FROM jobs
+		WHERE status IN ('queued', 'running')
+		ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanJobs(rows)
+}
+
+// ListRecentJobs returns the newest finished jobs across all tenants (not queued/running).
+func (d *DB) ListRecentJobs(ctx context.Context, limit int) ([]Job, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := d.SQL.QueryContext(ctx, `
+		SELECT id, tenant_id, COALESCE(schedule_id,''), service, job_type, status, started_at, finished_at,
+			items_new, items_total, bytes_transferred, COALESCE(error_message,''), COALESCE(kopia_snapshot,''),
+			progress_pct, COALESCE(progress_message,''), COALESCE(params,''), created_at
+		FROM jobs
+		WHERE status NOT IN ('queued', 'running')
+		ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanJobs(rows)
+}
+
 func (d *DB) ListJobs(ctx context.Context, tenantID string, limit int) ([]Job, error) {
 	if limit <= 0 {
 		limit = 50

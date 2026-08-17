@@ -2,6 +2,7 @@ package i18n
 
 var en = map[string]string{
 	"nav.tenants":        "Tenants",
+	"nav.jobs":           "Jobs",
 	"nav.settings":       "Settings",
 	"nav.api":            "API",
 	"nav.logout":         "Logout",
@@ -155,6 +156,12 @@ var en = map[string]string{
 	"jobs.no_detail_log": "No detail log (job from before job_logs, or still empty).",
 	"jobs.bytes":         "bytes",
 	"jobs.snapshot":      "Snapshot",
+	"jobs.overview_title": "Running jobs",
+	"jobs.overview_hint":  "All tenants. The list refreshes automatically.",
+	"jobs.overview_empty": "No backup is running right now.",
+	"jobs.overview_recent": "Recent",
+	"jobs.type_full":      "Full",
+	"jobs.type_delta":     "Incremental",
 
 	"snapshots.files":   "files",
 	"snapshots.empty":   "No snapshots yet.",

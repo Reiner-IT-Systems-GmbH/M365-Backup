@@ -1,0 +1,36 @@
+{{define "jobs.html"}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.L.T "jobs.overview_title"}} · M365 Backup</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/tenants"><img src="/static/favicon.png" alt="" width="28" height="28">M365 Backup</a>
+    <nav>
+      <a href="/tenants">{{.L.T "nav.tenants"}}</a>
+      <a href="/jobs">{{.L.T "nav.jobs"}}</a>
+      <a href="/settings">{{.L.T "nav.settings"}}</a>
+      <a href="/openapi">{{.L.T "nav.api"}}</a>
+      {{template "langswitch" .}}
+      <form method="post" action="/logout" class="inline"><button type="submit">{{.L.T "nav.logout"}}</button></form>
+    </nav>
+  </header>
+  <main class="wrap">
+    <h1>{{.L.T "jobs.overview_title"}}</h1>
+    <p class="muted">{{.L.T "jobs.overview_hint"}}</p>
+    <div id="jobs-overview"
+         hx-get="/jobs/live"
+         hx-trigger="every 5s"
+         hx-swap="innerHTML">
+      {{template "jobs_overview_partial.html" .}}
+    </div>
+  </main>
+</body>
+</html>
+{{end}}

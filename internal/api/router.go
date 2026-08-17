@@ -65,6 +65,9 @@ func (s *Server) Router() http.Handler {
 	r.Get("/lang/{lang}", s.handleSetLang)
 
 	r.Get("/", s.handleHome)
+	r.Get("/jobs", s.handleJobsOverview)
+	r.Get("/jobs/live", s.handleJobsOverviewPartial)
+	r.Get("/api/jobs", s.apiListActiveJobs)
 	r.Get("/tenants", s.handleTenants)
 	r.Post("/tenants/usage/refresh", s.handleUsageRefreshAll)
 	r.Get("/tenants/new", s.handleTenantNewForm)
@@ -501,10 +504,18 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Header.Get("HX-Request") == "true" {
+		if r.URL.Query().Get("view") == "overview" {
+			s.handleJobsOverviewPartial(w, r)
+			return
+		}
 		jobs, _ := s.DB.ListJobs(r.Context(), tid, 30)
 		s.render(w, r, "jobs_partial.html", map[string]any{
 			"Jobs": jobs, "TenantID": tid, "JobCounts": countJobs(jobs),
 		})
+		return
+	}
+	if r.URL.Query().Get("view") == "overview" {
+		http.Redirect(w, r, "/jobs", http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/tenants/"+tid+"/jobs/"+jid, http.StatusFound)
