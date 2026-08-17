@@ -119,23 +119,26 @@
     <section id="einstellungen" class="tenant-panel" data-panel="einstellungen" role="tabpanel" hidden>
       <h2>{{.L.T "tenant.schedules"}}</h2>
       <p class="muted">{{.L.T "tenant.schedules_hint"}}</p>
-      <table>
-        <thead><tr><th>{{.L.T "tenant.col.service"}}</th><th>{{.L.T "tenant.col.cron"}}</th><th>{{.L.T "tenant.col.enabled"}}</th><th></th></tr></thead>
-        <tbody>
-        {{range .Schedules}}
-          <tr>
-            <td>{{.Service}}</td>
-            <td colspan="3">
-              <form method="post" action="/tenants/{{$.Tenant.ID}}/schedules/{{.ID}}" class="row gap">
-                <input name="cron_expr" value="{{.CronExpr}}" placeholder="{{$.L.T "tenant.cron_placeholder"}}">
-                <label class="inline"><input type="checkbox" name="enabled" value="on" {{if .Enabled}}checked{{end}}> {{$.L.T "tenant.enabled"}}</label>
-                <button type="submit">{{$.L.T "action.save"}}</button>
-              </form>
-            </td>
-          </tr>
-        {{end}}
-        </tbody>
-      </table>
+      <form method="post" action="/tenants/{{.Tenant.ID}}/schedules" class="schedules-form">
+        <table>
+          <thead><tr><th>{{.L.T "tenant.col.service"}}</th><th>{{.L.T "tenant.col.cron"}}</th><th>{{.L.T "tenant.col.enabled"}}</th></tr></thead>
+          <tbody>
+          {{range .Schedules}}
+            <tr>
+              <td>{{.Service}}</td>
+              <td>
+                <input type="hidden" name="schedule_id" value="{{.ID}}">
+                <input name="cron_expr.{{.ID}}" value="{{.CronExpr}}" placeholder="{{$.L.T "tenant.cron_placeholder"}}">
+              </td>
+              <td>
+                <label class="inline"><input type="checkbox" name="enabled.{{.ID}}" value="on" {{if .Enabled}}checked{{end}}> {{$.L.T "tenant.enabled"}}</label>
+              </td>
+            </tr>
+          {{end}}
+          </tbody>
+        </table>
+        <button type="submit">{{.L.T "action.save"}}</button>
+      </form>
 
       <div class="usage-panel" style="margin-top:1.5rem">
         <h2>{{.L.T "tenant.retention_title"}}</h2>

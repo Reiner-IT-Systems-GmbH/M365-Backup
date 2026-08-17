@@ -127,6 +127,7 @@ func (d *DB) migrate() error {
 		{5, dir + "/005_usage_cache.sql"},
 		{6, dir + "/006_job_params.sql"},
 		{7, dir + "/007_users.sql"},
+		{8, dir + "/008_job_active_lock.sql"},
 	}
 	for _, v := range versions {
 		var n int
@@ -163,6 +164,18 @@ func (d *DB) migrate() error {
 		}
 	}
 	return nil
+}
+
+// IsUniqueViolation reports a UNIQUE / duplicate-key error from SQLite or MySQL.
+func IsUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "unique constraint") ||
+		strings.Contains(s, "duplicate key") ||
+		strings.Contains(s, "duplicate entry") ||
+		strings.Contains(s, "1062")
 }
 
 func isDuplicateColumnErr(err error) bool {

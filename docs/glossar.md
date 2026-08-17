@@ -11,7 +11,7 @@
 | **Job** | Ein einzelner Backup-/Export-Lauf eines Service |
 | **Schedule** | Cron-Zeile pro Tenant+Service |
 | **Delta-Token** | Graph-Fortsetzungslink in der DB |
-| **Service-Lock** | Höchstens ein aktiver Job (`queued`/`running`) pro Tenant+Service; andere Dienste parallel |
+| **Service-Lock** | Höchstens ein aktiver Job (`queued`/`running`) pro Tenant+Service; Inkremente warten, solange ein Full-Sync läuft |
 | **Smart Recycle** | Synology-ähnliche Retention (h/d/w/m/y + KeepMin) |
 | **MASTER_KEY** | Env-Key zum Verschlüsseln von DB-Secrets — **nicht** Kopia |
 | **Kopia-Passwort** | Öffnet das Tenant-`repo/`; Basis für Offline-Recovery |

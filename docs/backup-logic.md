@@ -81,24 +81,35 @@ Zeiten sind bewusst gestaffelt, damit nicht alle Dienste in derselben Minute feu
 ## Job-Lock (kein paralleles Backup pro Dienst)
 
 **Regel:** Pro Tenant+Service darf höchstens **ein** Job in `queued` oder `running` sein.
-Unterschiedliche Dienste (z. B. Exchange und OneDrive) dürfen parallel laufen.
+Läuft ein **Full-Sync** (`job_type=full`), dürfen **keine Inkremente** (Cron/UI, jeder
+Dienst) für denselben Tenant starten — sonst schreiben sie in einen halbfertigen
+Live-Baum und können eine weitere Vollkopie als Snapshot ablegen.
+
+Unterschiedliche Dienste dürfen parallel laufen, **solange kein Full-Sync aktiv ist**
+(z. B. zwei Fulls Exchange+OneDrive aus einem UI-Klick).
 
 ### Warum?
 
 - Zwei Exchange-Läufe gleichzeitig verdoppeln Graph-Last und schreiben in denselben `sync/exchange`-Baum.
-- Parallele Dienste sind erwünscht (längere Teams-/SharePoint-Läufe sollen Exchange nicht blockieren).
+- Ein stündliches Inkrement während eines mehrstündigen Full-Syncs erzeugt „Datenmüll“
+  (nochmal ~Mailbox-Größe), weil Tokens fehlen oder der Baum noch nicht konsistent ist.
 - Kopia-Schreibzugriffe auf dasselbe Tenant-Repo werden separat serialisiert (Repo-Write-Lock).
 
 ### Umsetzung
 
-1. **Enqueue-Lock** (`Runner.Enqueue`): prüft `CountActiveJobs(tenant, service)`; wenn > 0 →
-   `ErrTenantBusy` (kein neuer Job für diesen Dienst).
-2. **Prozess-Mutex** um den Enqueue-Check, damit zwei Cron-Fires nicht gleichzeitig
+1. **Enqueue-Lock** (`Runner.Enqueue`): `CountActiveJobs(tenant, service)` > 0 →
+   `ErrTenantBusy`. Zusätzlich: Inkrement/Export, wenn `CountActiveFullJobs(tenant)` > 0.
+2. **DB Unique Index** `uq_jobs_one_active` — höchstens eine Zeile `queued`/`running`
+   pro Tenant+Service (auch über Prozessgrenzen).
+3. **Prozess-Mutex** um den Enqueue-Check, damit zwei Cron-Fires nicht gleichzeitig
    „frei“ sehen.
-3. **Service-Gate** während `runJob`: exklusives Mutex pro Tenant+Service für die Laufzeit
-   (zusätzliche Absicherung).
-4. **Kopia Repo-Write-Lock**: Snapshots/Retention am selben Repo nacheinander.
-5. **Global** `MAX_CONCURRENT_JOBS`: begrenzt parallele Jobs **über alle Tenants**
+4. **Service-Gate** während `runJob` plus **Datei-Lock** `{repo}/.locks/{service}.lock`.
+5. **Instance-Lock** `{KOPIA_ROOT}/.runner.lock` — zweite Instanz startet nicht
+   (sonst würde `RecoverOrphans` den DB-Lock der ersten freigeben).
+6. **Delta-Tokens** werden erst gelöscht, wenn der Full-Job wirklich eingereiht wird
+   (nicht schon beim Klick, falls der Dienst busy ist).
+7. **Kopia Repo-Write-Lock**: Snapshots/Retention am selben Repo nacheinander.
+8. **Global** `MAX_CONCURRENT_JOBS`: begrenzt parallele Jobs **über alle Tenants**
    (Semaphore).
 
 ### Verhalten bei Konflikt

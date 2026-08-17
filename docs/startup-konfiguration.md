@@ -44,7 +44,7 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 | `MYSQL_DSN` / `MYSQL_*` | — | MySQL (Compose/Prod) |
 | `KOPIA_ROOT` | `./data/kopia` | Wurzel aller Tenant-Repos |
 | `STAGING_ROOT` | `./data/staging` | Ephemere Job-Verzeichnisse |
-| `MAX_CONCURRENT_JOBS` | `2` | Globales Semaphore (verschiedene Tenants) |
+| `MAX_CONCURRENT_JOBS` | `2` | Globales Semaphore (verschiedene Tenants); Full-Sync blockiert Inkremente desselben Tenants |
 | `EXCHANGE_WORKERS` | `6` (max 32) | Parallele Mailbox-/Drive-Worker **innerhalb** eines Jobs |
 | `DISPLAY_TZ` | `Europe/Berlin` (sonst `TZ`) | IANA-Zone für UI-Zeiten; DB bleibt UTC |
 | `SMTP_*` | — | Fallback-Notifier (siehe Benachrichtigungen) |

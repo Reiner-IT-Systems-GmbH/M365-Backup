@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -53,6 +54,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	runLock, err := backup.TryRunnerLock(filepath.Join(cfg.KopiaRoot, ".runner.lock"))
+	if err != nil {
+		log.Error("runner lock", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = runLock.Unlock() }()
 
 	store := storage.NewEngine()
 	tenants := &tenant.Manager{

@@ -257,7 +257,7 @@ Publish artifacts from CI (GitHub/GitLab Releases) and install the same way as �
 | `MASTER_KEY` | **yes** | — | Base64 32-byte AES key |
 | `ADMIN_USER` | no | `m365adminuser` | UI login name |
 | `ADMIN_PASSWORD` | **yes** | — | UI password (min 8 chars); also a write API token |
-| `MAX_CONCURRENT_JOBS` | no | `2` | Max parallel jobs **across tenants** (per tenant: always ≤1, see [docs/backup-logic.md](docs/backup-logic.md)) |
+| `MAX_CONCURRENT_JOBS` | no | `2` | Max parallel jobs **across tenants**. Per tenant+service always ≤1; incrementals wait while a full sync is active (see [docs/backup-logic.md](docs/backup-logic.md)) |
 | `SMTP_*` | no | — | Optional env-level SMTP fallback |
 
 Secrets must live in environment / `EnvironmentFile=` only — never in the repository.

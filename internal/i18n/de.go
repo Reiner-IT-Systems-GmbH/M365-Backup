@@ -51,7 +51,7 @@ var de = map[string]string{
 	// Tenant detail
 	"tenant.storage":               "Speicher",
 	"tenant.flash_usage_ok":        "Speicher gemessen und im Cache gespeichert.",
-	"tenant.flash_job_busy":        "Dieser Dienst hat bereits einen aktiven Job — neuer Start wurde übersprungen.",
+	"tenant.flash_job_busy":        "Ein Full-Sync oder derselbe Dienst läuft bereits — neuer Job wurde nicht gestartet.",
 	"tenant.flash_job_queued":      "Backup-Job eingereiht.",
 	"tenant.flash_job_full":        "Delta-Tokens gelöscht. Full-Sync eingereiht.",
 	"tenant.flash_job_none":        "Bitte mindestens einen Dienst wählen.",

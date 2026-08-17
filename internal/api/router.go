@@ -73,6 +73,7 @@ func (s *Server) Router() http.Handler {
 	r.Post("/tenants/{id}/usage/refresh", s.handleUsageRefreshOne)
 	r.Post("/tenants/{id}/backup", s.handleTriggerBackups)
 	r.Post("/tenants/{id}/backup/{service}", s.handleTriggerBackup)
+	r.Post("/tenants/{id}/schedules", s.handleUpdateSchedules)
 	r.Post("/tenants/{id}/schedules/{sid}", s.handleUpdateSchedule)
 	r.Post("/tenants/{id}/retention", s.handleUpdateRetention)
 	r.Get("/tenants/{id}/recovery", s.handleRecoveryForm)
@@ -866,14 +867,6 @@ func (s *Server) handleTriggerBackups(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/tenants/"+id+"?job=none", http.StatusFound)
 		return
 	}
-	if mode == "full" {
-		for _, svc := range services {
-			if err := s.DB.DeleteDeltaTokens(r.Context(), id, svc); err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-		}
-	}
 	queued, busy := 0, 0
 	for _, svc := range services {
 		_, err := s.Runner.Enqueue(r.Context(), id, svc, "", mode)
@@ -939,32 +932,70 @@ func (s *Server) ensurePSTSchedule(ctx context.Context, tenantID string) {
 	_ = s.Sched.Reload(ctx)
 }
 
-func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	sid := chi.URLParam(r, "sid")
-	tid := chi.URLParam(r, "id")
-	sch, err := s.DB.GetSchedule(r.Context(), sid)
+func (s *Server) applyScheduleForm(ctx context.Context, tid, sid, cronExpr, enabled string) error {
+	sch, err := s.DB.GetSchedule(ctx, sid)
 	if err != nil {
-		http.Error(w, err.Error(), 404)
-		return
+		return err
 	}
 	if sch.TenantID != tid {
-		http.Error(w, "not found", 404)
-		return
+		return errScheduleWrongTenant
 	}
-	sch.CronExpr = strings.TrimSpace(r.FormValue("cron_expr"))
+	sch.CronExpr = strings.TrimSpace(cronExpr)
 	if sch.CronExpr == "" {
 		if def, ok := tenant.DefaultCronFor(sch.Service); ok {
 			sch.CronExpr = def
 		} else {
-			http.Error(w, "cron_expr required", 400)
+			return errCronRequired
+		}
+	}
+	sch.Enabled = enabled == "on" || enabled == "true" || enabled == "1"
+	return s.DB.UpdateSchedule(ctx, sch)
+}
+
+var (
+	errScheduleWrongTenant = errors.New("not found")
+	errCronRequired        = errors.New("cron_expr required")
+)
+
+func (s *Server) handleUpdateSchedules(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	tid := chi.URLParam(r, "id")
+	if _, err := s.DB.GetTenant(r.Context(), tid); err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	for _, sid := range r.Form["schedule_id"] {
+		sid = strings.TrimSpace(sid)
+		if sid == "" {
+			continue
+		}
+		if err := s.applyScheduleForm(r.Context(), tid, sid, r.FormValue("cron_expr."+sid), r.FormValue("enabled."+sid)); err != nil {
+			if errors.Is(err, errCronRequired) {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			http.Error(w, err.Error(), 404)
 			return
 		}
 	}
-	sch.Enabled = r.FormValue("enabled") == "on" || r.FormValue("enabled") == "true" || r.FormValue("enabled") == "1"
-	_ = s.DB.UpdateSchedule(r.Context(), sch)
 	_ = s.Sched.Reload(r.Context())
-	http.Redirect(w, r, "/tenants/"+tid, http.StatusFound)
+	http.Redirect(w, r, "/tenants/"+tid+"#einstellungen", http.StatusFound)
+}
+
+func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	sid := chi.URLParam(r, "sid")
+	tid := chi.URLParam(r, "id")
+	if err := s.applyScheduleForm(r.Context(), tid, sid, r.FormValue("cron_expr"), r.FormValue("enabled")); err != nil {
+		if errors.Is(err, errCronRequired) {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	_ = s.Sched.Reload(r.Context())
+	http.Redirect(w, r, "/tenants/"+tid+"#einstellungen", http.StatusFound)
 }
 
 func (s *Server) handleUpdateRetention(w http.ResponseWriter, r *http.Request) {

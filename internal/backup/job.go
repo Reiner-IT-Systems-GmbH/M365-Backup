@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
+
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
 	"github.com/rhw/m365backup/internal/notification"
@@ -36,9 +38,23 @@ type Runner struct {
 }
 
 // ErrTenantBusy is returned when Enqueue is refused because this tenant already
-// has a queued or running job for the same service (e.g. two Exchange jobs).
-// Different services for the same tenant may run in parallel.
+// has a queued or running job for the same service, or a full sync is active
+// (incrementals must not start while a full sync is writing the live tree).
 var ErrTenantBusy = errors.New("service already has an active backup job")
+
+// TryRunnerLock takes an exclusive process lock so a second instance cannot
+// start and race the first (RecoverOrphans would otherwise free the DB lock).
+func TryRunnerLock(path string) (*flock.Flock, error) {
+	l := flock.New(path)
+	ok, err := l.TryLock()
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("another m365-backup instance already holds %s", path)
+	}
+	return l, nil
+}
 
 func NewRunner(database *db.DB, tenants *tenant.Manager, reg *Registry, store *storage.Engine, notifier *notification.Service, staging string, maxConc int, log *slog.Logger) *Runner {
 	if maxConc < 1 {
@@ -138,6 +154,26 @@ func (r *Runner) EnqueueParams(ctx context.Context, tenantID, service, scheduleI
 		return nil, ErrTenantBusy
 	}
 
+	// A full sync rewrites the live tree / delta tokens. Cron incrementals
+	// (any service) must wait — otherwise they snapshot a half-written tree
+	// and can store another full-size copy.
+	if jobType != "full" {
+		fullN, err := r.DB.CountActiveFullJobs(ctx, tenantID)
+		if err != nil {
+			return nil, err
+		}
+		if fullN > 0 {
+			r.Log.Info("enqueue skipped (full sync active)", "tenant", tenantID, "service", service, "type", jobType, "full", fullN)
+			return nil, ErrTenantBusy
+		}
+	}
+
+	if jobType == "full" {
+		if err := r.DB.DeleteDeltaTokens(ctx, tenantID, service); err != nil {
+			return nil, err
+		}
+	}
+
 	job := &db.Job{
 		TenantID:   tenantID,
 		ScheduleID: scheduleID,
@@ -147,11 +183,41 @@ func (r *Runner) EnqueueParams(ctx context.Context, tenantID, service, scheduleI
 		Params:     params,
 	}
 	if err := r.DB.CreateJob(ctx, job); err != nil {
+		if db.IsUniqueViolation(err) {
+			r.Log.Info("enqueue skipped (unique active-job lock)", "tenant", tenantID, "service", service)
+			return nil, ErrTenantBusy
+		}
 		return nil, err
 	}
 	r.Log.Info("job queued", "id", job.ID, "tenant", tenantID, "service", service, "type", jobType)
 	go r.runJob(job.ID)
 	return job, nil
+}
+
+func tryServiceFileLock(repoPath, service string) (*flock.Flock, error) {
+	if repoPath == "" || service == "" {
+		return nil, fmt.Errorf("service lock: repo path and service required")
+	}
+	if _, err := storage.GuardPath(service); err != nil {
+		return nil, fmt.Errorf("service lock: %w", err)
+	}
+	lockDir, err := storage.EnsureSubpath(repoPath, ".locks")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(lockDir, 0o700); err != nil {
+		return nil, err
+	}
+	lockPath := filepath.Join(lockDir, service+".lock")
+	l := flock.New(lockPath)
+	ok, err := l.TryLock()
+	if err != nil {
+		return nil, fmt.Errorf("service lock: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("service %s is already locked by another process", service)
+	}
+	return l, nil
 }
 
 func (r *Runner) serviceGate(tenantID, service string) *sync.Mutex {
@@ -227,6 +293,12 @@ func (r *Runner) runJob(jobID string) {
 		r.fail(ctx, job, err)
 		return
 	}
+	svcLock, err := tryServiceFileLock(t.KopiaRepoPath, job.Service)
+	if err != nil {
+		r.fail(ctx, job, err)
+		return
+	}
+	defer func() { _ = svcLock.Unlock() }()
 	svc, ok := r.Registry.Get(job.Service)
 	if !ok {
 		r.fail(ctx, job, fmt.Errorf("unknown service %s", job.Service))

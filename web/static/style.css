@@ -594,6 +594,8 @@ table.compact th, table.compact td { padding: .4rem .55rem; font-size: .9rem; }
   white-space: nowrap;
 }
 .job-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.schedules-form { display: grid; gap: .85rem; margin-top: .5rem; }
+.schedules-form table { margin: 0; }
 .retention-form { display: grid; gap: .85rem; margin-top: .5rem; }
 .retention-grid {
   display: grid;

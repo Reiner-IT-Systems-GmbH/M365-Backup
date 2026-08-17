@@ -60,11 +60,13 @@ Dazwischen melden Services über `Progress.Emit` / `SyncJob` (Zähler + Prozent 
 
 Siehe ausführlich [backup-logic.md](backup-logic.md). Kurz:
 
-1. **Enqueue-Check** (`CountActiveJobs(tenant, service)`) → `ErrTenantBusy`
-2. **`enqueueMu`** — zwei Cron-Fires sehen nicht gleichzeitig „frei“
-3. **Service-Gate** während des Laufs (Belt-and-suspenders)
-4. **Kopia Repo-Write-Lock** — parallele Dienste serialisieren Snapshots
-5. **Global-Semaphore** über Tenants hinweg
+1. **Enqueue-Check** (`CountActiveJobs(tenant, service)` + Full-Sync blockiert Inkremente) → `ErrTenantBusy`
+2. **DB Unique Index** — ein aktiver Job pro Tenant+Service
+3. **`enqueueMu`** — zwei Cron-Fires sehen nicht gleichzeitig „frei“
+4. **Service-Gate** + Datei-Lock `{repo}/.locks/{service}.lock` während des Laufs
+5. **Instance-Lock** — nur ein Prozess
+6. **Kopia Repo-Write-Lock** — parallele Dienste serialisieren Snapshots
+7. **Global-Semaphore** über Tenants hinweg
 
 ## Orphans beim Start
 

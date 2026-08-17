@@ -47,7 +47,7 @@ var en = map[string]string{
 
 	"tenant.storage":               "Storage",
 	"tenant.flash_usage_ok":        "Storage measured and saved to cache.",
-	"tenant.flash_job_busy":        "This service already has an active job — new start was skipped.",
+	"tenant.flash_job_busy":        "A full sync or this service is already running — the new job was skipped.",
 	"tenant.flash_job_queued":      "Backup job queued.",
 	"tenant.flash_job_full":        "Delta tokens deleted. Full sync queued.",
 	"tenant.flash_job_none":        "Please choose at least one service.",

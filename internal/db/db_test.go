@@ -88,3 +88,44 @@ func TestUserAndAPIToken(t *testing.T) {
 		t.Fatalf("by hash: %v %+v", err, got)
 	}
 }
+
+func TestOneActiveJobPerService(t *testing.T) {
+	database, err := db.Open(db.Options{Driver: db.DriverSQLite, SQLitePath: filepath.Join(t.TempDir(), "j.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	ten := &db.Tenant{
+		Name: "Acme", AzureTenantID: "22222222-2222-2222-2222-222222222222",
+		ClientID: "cid", ClientSecret: "enc-placeholder", KopiaPassword: "enc-kopia",
+		KopiaRepoPath: "/tmp/kopia/y", Status: "active",
+	}
+	if err := database.CreateTenant(ctx, ten); err != nil {
+		t.Fatal(err)
+	}
+	a := &db.Job{TenantID: ten.ID, Service: "exchange", JobType: "full", Status: "queued"}
+	if err := database.CreateJob(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	b := &db.Job{TenantID: ten.ID, Service: "exchange", JobType: "delta", Status: "queued"}
+	if err := database.CreateJob(ctx, b); err == nil || !db.IsUniqueViolation(err) {
+		t.Fatalf("second active exchange job must hit unique lock, got %v", err)
+	}
+	c := &db.Job{TenantID: ten.ID, Service: "onedrive", JobType: "full", Status: "queued"}
+	if err := database.CreateJob(ctx, c); err != nil {
+		t.Fatalf("other service must be allowed: %v", err)
+	}
+	n, err := database.CountActiveFullJobs(ctx, ten.ID)
+	if err != nil || n != 2 {
+		t.Fatalf("full jobs=%d err=%v", n, err)
+	}
+	a.Status = "success"
+	if err := database.UpdateJob(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	d := &db.Job{TenantID: ten.ID, Service: "exchange", JobType: "delta", Status: "queued"}
+	if err := database.CreateJob(ctx, d); err != nil {
+		t.Fatalf("after success, new exchange job must be allowed: %v", err)
+	}
+}

@@ -194,6 +194,15 @@ func (d *DB) CountActiveJobs(ctx context.Context, tenantID, service string) (int
 	return n, err
 }
 
+// CountActiveFullJobs returns queued+running jobs with job_type=full for a tenant.
+func (d *DB) CountActiveFullJobs(ctx context.Context, tenantID string) (int, error) {
+	var n int
+	err := d.SQL.QueryRowContext(ctx, `
+		SELECT COUNT(1) FROM jobs
+		WHERE tenant_id=? AND job_type='full' AND status IN ('queued', 'running')`, tenantID).Scan(&n)
+	return n, err
+}
+
 // FailOrphanedJobs marks jobs left in queued/running after a process crash/restart.
 func (d *DB) FailOrphanedJobs(ctx context.Context, reason string) (int64, error) {
 	now := time.Now().UTC()
