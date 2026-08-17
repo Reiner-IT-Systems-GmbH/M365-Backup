@@ -147,8 +147,8 @@ func (d *DB) migrate() error {
 		}
 		for _, stmt := range splitSQL(string(body)) {
 			if _, err := tx.Exec(stmt); err != nil {
-				// MySQL DDL auto-commits; a retry must tolerate "column already exists".
-				if isDuplicateColumnErr(err) {
+				// MySQL DDL auto-commits; a retry must tolerate "already exists".
+				if isDuplicateColumnErr(err) || isDuplicateIndexErr(err) {
 					continue
 				}
 				_ = tx.Rollback()
@@ -186,6 +186,16 @@ func isDuplicateColumnErr(err error) bool {
 	return strings.Contains(s, "duplicate column") ||
 		strings.Contains(s, "1060") ||
 		(strings.Contains(s, "already exists") && strings.Contains(s, "column"))
+}
+
+func isDuplicateIndexErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "duplicate key name") ||
+		strings.Contains(s, "1061") ||
+		(strings.Contains(s, "already exists") && strings.Contains(s, "index"))
 }
 
 func splitSQL(s string) []string {
