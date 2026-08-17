@@ -36,6 +36,11 @@
 .PARAMETER TenantId
   Directory (tenant) ID to connect to. Default: common (picker).
 
+.PARAMETER UseDeviceCode
+  Sign in with a device code (URL + code in the terminal) instead of a browser
+  popup. Use this on Windows Server, RDP, Windows Terminal, or whenever
+  Connect-MgGraph fails with "A window handle must be configured" (WAM).
+
 .EXAMPLE
   # New app in the signed-in tenant
   .\Register-M365BackupApp.ps1 -RedirectUri "https://backup.example.com/api/consent/callback"
@@ -47,6 +52,10 @@
 .EXAMPLE
   # Existing app + rotate secret
   .\Register-M365BackupApp.ps1 -AppId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -NewSecret
+
+.EXAMPLE
+  # Windows Server / RDP: avoid WAM "window handle" errors
+  .\Register-M365BackupApp.ps1 -RedirectUri "https://backup.example.com/api/consent/callback" -UseDeviceCode
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -63,7 +72,9 @@ param(
 
     [switch] $SkipOptional,
 
-    [string] $TenantId = ""
+    [string] $TenantId = "",
+
+    [switch] $UseDeviceCode
 )
 
 Set-StrictMode -Version Latest
@@ -155,6 +166,38 @@ function Ensure-AppRoleAssignments {
     return [pscustomobject]@{ Added = $added; AlreadyGranted = $skipped }
 }
 
+function Connect-M365BackupGraph {
+    param(
+        [Parameter(Mandatory)] [hashtable] $Params,
+        [switch] $DeviceCode
+    )
+
+    if ($DeviceCode) {
+        $Params["UseDeviceCode"] = $true
+        Write-Host "Step 1/2: Microsoft login as Global Admin (required before the app can be created)." -ForegroundColor Cyan
+        Write-Host "No browser popup on this machine. Wait for the URL and code, open the URL, enter the code, then sign in." -ForegroundColor Yellow
+        Write-Host "Step 2/2 runs automatically after login: create app, permissions, admin consent, client secret." -ForegroundColor DarkGray
+        Connect-MgGraph @Params | Out-Null
+        return
+    }
+
+    Write-Host "Step 1/2: Microsoft login as Global Admin (required before the app can be created)." -ForegroundColor Cyan
+    try {
+        Connect-MgGraph @Params | Out-Null
+    } catch {
+        $msg = [string]$_.Exception.Message
+        if ($msg -match "window handle|WAM|InteractiveBrowserCredential") {
+            Write-Warning "Browser popup failed on this session (Windows Server / RDP / Terminal)."
+            Write-Host "Same login, different method: wait for the URL and code, open the URL, enter the code, then sign in." -ForegroundColor Yellow
+            Write-Host "After login the script creates the app, permissions, admin consent, and client secret." -ForegroundColor DarkGray
+            $Params["UseDeviceCode"] = $true
+            Connect-MgGraph @Params | Out-Null
+        } else {
+            throw
+        }
+    }
+}
+
 Ensure-GraphModules
 
 $wanted = [System.Collections.Generic.List[string]]::new()
@@ -169,15 +212,14 @@ $scopes = @(
     "Directory.Read.All"
 )
 
-Write-Host "Connecting to Microsoft Graph (interactive)..." -ForegroundColor Cyan
 $connectParams = @{
-    Scopes = $scopes
+    Scopes    = $scopes
     NoWelcome = $true
 }
 if ($TenantId) {
     $connectParams["TenantId"] = $TenantId
 }
-Connect-MgGraph @connectParams | Out-Null
+Connect-M365BackupGraph -Params $connectParams -DeviceCode:$UseDeviceCode
 
 $ctx = Get-MgContext
 if (-not $ctx) {

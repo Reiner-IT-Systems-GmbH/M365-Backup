@@ -282,6 +282,12 @@ Fix an existing app (e.g. add missing `Team.ReadBasic.All`) without rotating the
 
 Requires Global Admin (or Application Administrator + Privileged Role Administrator) in the customer tenant. Modules `Microsoft.Graph.Authentication` / `Microsoft.Graph.Applications` are installed automatically if missing.
 
+On Windows Server, RDP, or Windows Terminal, Graph may fail with `A window handle must be configured` (WAM). Re-run with `-UseDeviceCode`, or open a classic `powershell.exe` window from the Start menu (not Windows Terminal / ISE) and run the script there. The script also retries device-code login automatically after that error.
+
+```powershell
+.\Register-M365BackupApp.ps1 -RedirectUri "https://<your-host>/api/consent/callback" -UseDeviceCode
+```
+
 ### Manual permissions
 
 Create **one app registration** (in your ops tenant or the customer tenant) and grant **Application** permissions:
