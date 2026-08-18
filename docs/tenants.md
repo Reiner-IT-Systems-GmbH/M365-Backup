@@ -53,7 +53,7 @@ Warum nur Exchange? Der erste Full-Sync ist oft der schwerste. Andere Dienste st
 Default-Crons und blockieren sich untereinander nicht mehr über einen Tenant-weiten Lock.
 
 **Re-Consent** (Tenant schon `active`): nur Redirect mit Flash — kein erneutes Activate, kein Job-Enqueue.
-Nützlich nach nachträglich ergänzten Graph-Permissions (z. B. `Team.ReadBasic.All`).
+Nützlich nach nachträglich ergänzten Graph-Permissions (z. B. `Channel.ReadBasic.All`).
 
 ## Keycheck
 

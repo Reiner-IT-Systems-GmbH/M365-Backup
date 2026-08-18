@@ -122,11 +122,7 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
-	user := "m365adminuser"
-	if s.Cfg != nil && s.Cfg.AdminUser != "" {
-		user = s.Cfg.AdminUser
-	}
-	s.render(w, r, "login.html", map[string]any{"DefaultUser": user})
+	s.render(w, r, "login.html", nil)
 }
 
 func readLoginCredentials(r *http.Request) (username, password string) {

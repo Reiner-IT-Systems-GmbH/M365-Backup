@@ -275,7 +275,7 @@ cd scripts
 .\Register-M365BackupApp.ps1 -RedirectUri "https://<your-host>/api/consent/callback"
 ```
 
-Fix an existing app (e.g. add missing `Team.ReadBasic.All`) without rotating the secret:
+Fix an existing app (e.g. add missing `Channel.ReadBasic.All`) without rotating the secret:
 
 ```powershell
 .\Register-M365BackupApp.ps1 -AppId "<application-client-id>"
@@ -299,8 +299,9 @@ Create **one app registration** (in your ops tenant or the customer tenant) and 
 | `Mail.ReadWrite` | Optional restore |
 | `Files.Read.All` | OneDrive / SharePoint |
 | `Files.ReadWrite.All` | Optional Graph restore |
-| `ChannelMessage.Read.All` | Teams channel messages |
 | `Team.ReadBasic.All` | List teams (required to enumerate) |
+| `Channel.ReadBasic.All` | List channels in a team |
+| `ChannelMessage.Read.All` | Teams channel messages |
 | `Chat.Read.All` | Teams chats |
 | `Sites.Read.All` | SharePoint sites |
 | `User.Read.All` | Enumerate users |

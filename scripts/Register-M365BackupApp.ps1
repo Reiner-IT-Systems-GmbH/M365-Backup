@@ -88,6 +88,7 @@ $RequiredPermissions = @(
     "Files.Read.All",
     "Sites.Read.All",
     "Team.ReadBasic.All",
+    "Channel.ReadBasic.All",
     "ChannelMessage.Read.All",
     "Chat.Read.All",
     "Application.Read.All"
