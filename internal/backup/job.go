@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/google/uuid"
 
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
 	"github.com/rhw/m365backup/internal/notification"
@@ -28,7 +30,6 @@ type Runner struct {
 	Notifier      *notification.Service
 	StagingRoot   string
 	MaxConcurrent int
-	KeepLiveSync  bool
 	Log           *slog.Logger
 
 	sem          chan struct{}
@@ -80,8 +81,8 @@ func (r *Runner) RecoverOrphans(ctx context.Context) {
 	r.PurgeStaging()
 }
 
-// PurgeStaging removes all leftover job folders under StagingRoot.
-// Safe at process start (no live jobs yet) and after crashes.
+// PurgeStaging removes leftover job folders under StagingRoot.
+// Only UUID-named directories are deleted so a store/ tree can share the same volume.
 func (r *Runner) PurgeStaging() {
 	if r.StagingRoot == "" {
 		return
@@ -95,6 +96,9 @@ func (r *Runner) PurgeStaging() {
 	}
 	removed := 0
 	for _, e := range entries {
+		if _, err := uuid.Parse(e.Name()); err != nil {
+			continue
+		}
 		path, err := storage.EnsureSubpath(r.StagingRoot, e.Name())
 		if err != nil {
 			continue
@@ -136,6 +140,20 @@ func (r *Runner) cleanStagingJob(jobID string) {
 	_ = os.RemoveAll(path)
 }
 
+func (r *Runner) bindTenantStore(ctx context.Context, t *db.Tenant) error {
+	if r.Tenants == nil || t == nil {
+		return nil
+	}
+	old, err := r.Tenants.BindStorePath(ctx, t)
+	if err != nil {
+		return err
+	}
+	if r.Log != nil && old != "" && filepath.Clean(old) != filepath.Clean(t.StorePath) {
+		r.Log.Info("rebased tenant store onto STORE_ROOT", "tenant", t.ID, "from", old, "to", t.StorePath)
+	}
+	return nil
+}
+
 func (r *Runner) Enqueue(ctx context.Context, tenantID, service, scheduleID, jobType string) (*db.Job, error) {
 	return r.EnqueueParams(ctx, tenantID, service, scheduleID, jobType, "")
 }
@@ -146,32 +164,71 @@ func (r *Runner) EnqueueParams(ctx context.Context, tenantID, service, scheduleI
 	r.enqueueMu.Lock()
 	defer r.enqueueMu.Unlock()
 
-	n, err := r.DB.CountActiveJobs(ctx, tenantID, service)
+	job, extras, err := r.enqueueLocked(ctx, tenantID, service, scheduleID, jobType, params, true)
 	if err != nil {
 		return nil, err
 	}
-	if n > 0 {
-		r.Log.Info("enqueue skipped (service busy)", "tenant", tenantID, "service", service, "active", n)
-		return nil, ErrTenantBusy
+	for _, svc := range extras {
+		_, _, ferr := r.enqueueLocked(ctx, tenantID, svc, "", "full", "", false)
+		if ferr == nil {
+			continue
+		}
+		if errors.Is(ferr, ErrTenantBusy) {
+			r.Log.Info("empty-store fan-out skipped (busy)", "tenant", tenantID, "service", svc)
+			continue
+		}
+		r.Log.Error("empty-store fan-out", "tenant", tenantID, "service", svc, "err", ferr)
+	}
+	return job, nil
+}
+
+func (r *Runner) enqueueLocked(ctx context.Context, tenantID, service, scheduleID, jobType, params string, promoteEmpty bool) (*db.Job, []string, error) {
+	var extras []string
+	if promoteEmpty && isGraphBackupService(service) && jobType != "export" {
+		svcEmpty, tenantEmpty, err := r.emptyStoreState(ctx, tenantID, service)
+		if err != nil {
+			return nil, nil, err
+		}
+		if jobType != "full" && svcEmpty {
+			r.Log.Info("empty store — promoting to full Graph sync", "tenant", tenantID, "service", service, "was", jobType)
+			jobType = "full"
+		}
+		if tenantEmpty {
+			extras, err = r.enabledGraphServices(ctx, tenantID, service)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(extras) > 0 {
+				r.Log.Info("empty tenant store — full-sync all enabled services", "tenant", tenantID, "trigger", service, "also", extras)
+			}
+		}
 	}
 
-	// A full sync rewrites the live tree / delta tokens. Cron incrementals
-	// (any service) must wait — otherwise they snapshot a half-written tree
-	// and can store another full-size copy.
+	n, err := r.DB.CountActiveJobs(ctx, tenantID, service)
+	if err != nil {
+		return nil, nil, err
+	}
+	if n > 0 {
+		r.Log.Info("enqueue skipped (service busy)", "tenant", tenantID, "service", service, "active", n)
+		return nil, nil, ErrTenantBusy
+	}
+
+	// A full sync rewrites catalog / delta tokens. Cron incrementals
+	// (any service) must wait — otherwise they snapshot a half-written tree.
 	if jobType != "full" {
 		fullN, err := r.DB.CountActiveFullJobs(ctx, tenantID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if fullN > 0 {
 			r.Log.Info("enqueue skipped (full sync active)", "tenant", tenantID, "service", service, "type", jobType, "full", fullN)
-			return nil, ErrTenantBusy
+			return nil, nil, ErrTenantBusy
 		}
 	}
 
 	if jobType == "full" {
 		if err := r.DB.DeleteDeltaTokens(ctx, tenantID, service); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -186,23 +243,58 @@ func (r *Runner) EnqueueParams(ctx context.Context, tenantID, service, scheduleI
 	if err := r.DB.CreateJob(ctx, job); err != nil {
 		if db.IsUniqueViolation(err) {
 			r.Log.Info("enqueue skipped (unique active-job lock)", "tenant", tenantID, "service", service)
-			return nil, ErrTenantBusy
+			return nil, nil, ErrTenantBusy
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	r.Log.Info("job queued", "id", job.ID, "tenant", tenantID, "service", service, "type", jobType)
 	go r.runJob(job.ID)
-	return job, nil
+	return job, extras, nil
 }
 
-func tryServiceFileLock(repoPath, service string) (*flock.Flock, error) {
-	if repoPath == "" || service == "" {
-		return nil, fmt.Errorf("service lock: repo path and service required")
+func isGraphBackupService(service string) bool {
+	for _, s := range catalog.GraphBackupServices {
+		if s == service {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runner) emptyStoreState(ctx context.Context, tenantID, service string) (serviceEmpty, tenantEmpty bool, err error) {
+	t, err := r.DB.GetTenant(ctx, tenantID)
+	if err != nil {
+		return false, false, err
+	}
+	if err := r.bindTenantStore(ctx, t); err != nil {
+		return false, false, err
+	}
+	return catalog.EmptyLocalData(ctx, r.DB, tenantID, t.StorePath, service)
+}
+
+func (r *Runner) enabledGraphServices(ctx context.Context, tenantID, except string) ([]string, error) {
+	schedules, err := r.DB.ListSchedules(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, sch := range schedules {
+		if !sch.Enabled || sch.Service == except || !isGraphBackupService(sch.Service) {
+			continue
+		}
+		out = append(out, sch.Service)
+	}
+	return out, nil
+}
+
+func tryServiceFileLock(storePath, service string) (*flock.Flock, error) {
+	if storePath == "" || service == "" {
+		return nil, fmt.Errorf("service lock: store path and service required")
 	}
 	if _, err := storage.GuardPath(service); err != nil {
 		return nil, fmt.Errorf("service lock: %w", err)
 	}
-	lockDir, err := storage.EnsureSubpath(repoPath, ".locks")
+	lockDir, err := storage.EnsureSubpath(storePath, ".locks")
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +386,11 @@ func (r *Runner) runJob(jobID string) {
 		r.fail(ctx, job, err)
 		return
 	}
-	svcLock, err := tryServiceFileLock(t.KopiaRepoPath, job.Service)
+	if err := r.bindTenantStore(ctx, t); err != nil {
+		r.fail(ctx, job, err)
+		return
+	}
+	svcLock, err := tryServiceFileLock(t.StorePath, job.Service)
 	if err != nil {
 		r.fail(ctx, job, err)
 		return
@@ -316,7 +412,7 @@ func (r *Runner) runJob(jobID string) {
 	job.ProgressMessage = "Starting…"
 	_ = r.DB.UpdateJobProgress(ctx, job)
 
-	clientSecret, kopiaPass, err := r.Tenants.DecryptSecrets(t)
+	clientSecret, storePass, err := r.Tenants.DecryptSecrets(t)
 	if err != nil {
 		r.fail(ctx, job, err)
 		return
@@ -330,6 +426,31 @@ func (r *Runner) runJob(jobID string) {
 		}
 	} else {
 		_ = clientSecret
+	}
+
+	cat, err := catalog.Open(r.DB, t.ID, t.StorePath, storePass)
+	if err != nil {
+		r.fail(ctx, job, err)
+		return
+	}
+	imported, needFull, err := cat.EnsureMigrated(ctx, job.Service, job.ID)
+	if err != nil {
+		r.fail(ctx, job, err)
+		return
+	}
+	if imported {
+		prog.Emit("info", "imported existing sync/ tree as catalog generation 1")
+	}
+	if needFull && job.Service != "pst" {
+		if job.JobType != "full" {
+			if err := r.DB.DeleteDeltaTokens(ctx, t.ID, job.Service); err != nil {
+				r.fail(ctx, job, err)
+				return
+			}
+			job.JobType = "full"
+			_ = r.DB.UpdateJob(ctx, job)
+		}
+		prog.Emit("info", "empty catalog — Graph full sync (delta tokens cleared)")
 	}
 
 	stageDir, err := r.stagingJobDir(job.ID)
@@ -349,16 +470,11 @@ func (r *Runner) runJob(jobID string) {
 	}
 	defer func() { _ = os.RemoveAll(stageDir) }()
 
-	if err := r.hydrateLiveSync(ctx, t, kopiaPass, job.Service, prog); err != nil {
-		r.fail(ctx, job, err)
-		return
-	}
-
 	prog.Emit("info", "running service backup…")
 	job.ProgressPct = 2
 	job.ProgressMessage = "Running service backup…"
 	_ = r.DB.UpdateJobProgress(ctx, job)
-	result, runErr := svc.Run(ctx, gc, t, job, stageDir, r.DB)
+	result, runErr := svc.Run(ctx, gc, t, job, stageDir, r.DB, cat)
 	if runErr != nil {
 		if isCancelErr(runErr) || r.wasCancelled(job.ID) {
 			r.finishCancelled(ctx, job, "cancelled by user")
@@ -379,16 +495,16 @@ func (r *Runner) runJob(jobID string) {
 	policy := storage.ParseRetentionJSON(t.RetentionJSON)
 
 	if result.SkipSnapshot {
-		prog.Emit("info", "skipping encrypted snapshot (export job)")
+		prog.Emit("info", "skipping catalog snapshot (export job)")
 		if result.ExportPath != "" {
-			job.KopiaSnapshot = filepath.Base(result.ExportPath)
+			job.SnapshotID = filepath.Base(result.ExportPath)
 		}
-		_ = storage.ApplyPSTExportRetention(t.KopiaRepoPath, policy.PSTKeepRuns)
+		_ = storage.ApplyPSTExportRetention(t.StorePath, policy.PSTKeepRuns)
 		job.FinishedAt = time.Now().UTC()
 		job.ProgressPct = 100
 		job.ProgressMessage = summarizeResult(result)
 		if result.ExportPath != "" {
-			job.ProgressMessage = fmt.Sprintf("export %s · %s", job.KopiaSnapshot, summarizeResult(result))
+			job.ProgressMessage = fmt.Sprintf("export %s · %s", job.SnapshotID, summarizeResult(result))
 		}
 		if !result.livePersisted {
 			_ = r.persistLogs(ctx, job.ID, result.Logs)
@@ -401,21 +517,16 @@ func (r *Runner) runJob(jobID string) {
 			job.ErrorMessage = summarizeResult(result)
 		}
 		_ = r.DB.UpdateJob(ctx, job)
-		r.discardLiveSync(t.KopiaRepoPath, job.Service)
-		r.Log.Info("job finished", "id", job.ID, "status", job.Status, "export", job.KopiaSnapshot,
+		r.Log.Info("job finished", "id", job.ID, "status", job.Status, "export", job.SnapshotID,
 			"items", result.ItemsNew, "warnings", len(result.Warnings))
 		return
 	}
 
-	snapSource := stageDir
-	if result.SnapshotDir != "" {
-		snapSource = result.SnapshotDir
-	}
-	prog.Emit("info", fmt.Sprintf("creating snapshot from %s (%d items, %d bytes)…", snapSource, result.ItemsNew, result.BytesTransferred))
+	prog.Emit("info", fmt.Sprintf("committing catalog snapshot (%d items, %d bytes)…", result.ItemsNew, result.BytesTransferred))
 	job.ProgressPct = 95
-	job.ProgressMessage = "Creating encrypted snapshot (incremental vs previous)…"
+	job.ProgressMessage = "Committing catalog snapshot…"
 	_ = r.DB.UpdateJobProgress(ctx, job)
-	snap, err := r.Store.Snapshot(ctx, t.KopiaRepoPath, kopiaPass, snapSource, job.Service)
+	snap, err := cat.CommitSnapshot(ctx, job.Service, job.ID)
 	if err != nil {
 		if isCancelErr(err) || r.wasCancelled(job.ID) {
 			r.finishCancelled(ctx, job, "cancelled by user")
@@ -424,7 +535,8 @@ func (r *Runner) runJob(jobID string) {
 		r.fail(ctx, job, fmt.Errorf("snapshot: %w", err))
 		return
 	}
-	if n, err := r.Store.ApplySmartRetention(ctx, t.KopiaRepoPath, kopiaPass, policy); err != nil {
+	catalog.RemoveLegacyDirs(t.StorePath)
+	if n, err := cat.ApplySmartRetention(ctx, policy); err != nil {
 		prog.Emit("warn", fmt.Sprintf("retention: %v", err))
 	} else if n > 0 {
 		prog.Emit("info", fmt.Sprintf("Smart Recycle: %d alte Snapshots entfernt", n))
@@ -438,13 +550,13 @@ func (r *Runner) runJob(jobID string) {
 	job.ItemsNew = result.ItemsNew
 	job.ItemsTotal = result.ItemsTotal
 	job.BytesTransferred = result.BytesTransferred
-	job.KopiaSnapshot = snap.ID
+	job.SnapshotID = snap.ID
 	job.FinishedAt = time.Now().UTC()
 	job.ProgressPct = 100
 
-	snapMsg := fmt.Sprintf("snapshot %s stored", snap.ID)
+	snapMsg := fmt.Sprintf("snapshot %s stored (generation %d)", snap.ID, snap.Generation)
 	if len(result.Logs) == 0 {
-		snapMsg = fmt.Sprintf("snapshot %s created (%d files in staging)", snap.ID, result.ItemsNew)
+		snapMsg = fmt.Sprintf("snapshot %s created (%d items)", snap.ID, result.ItemsNew)
 	}
 	job.ProgressMessage = snapMsg
 	if result.livePersisted {
@@ -457,17 +569,18 @@ func (r *Runner) runJob(jobID string) {
 	if len(result.Warnings) > 0 {
 		job.Status = "warning"
 		job.ErrorMessage = summarizeResult(result)
-		_ = r.Notifier.Send(ctx, notification.Event{
-			Type: notification.EventJobWarning, TenantID: t.ID,
-			Subject: "Backup warning: " + t.Name + " / " + notification.SafeService(job.Service),
-			Body:    job.ErrorMessage + "\n\nSee job detail log for full list.",
-		})
+		if r.Notifier != nil {
+			_ = r.Notifier.Send(ctx, notification.Event{
+				Type: notification.EventJobWarning, TenantID: t.ID,
+				Subject: "Backup warning: " + t.Name + " / " + notification.SafeService(job.Service),
+				Body:    job.ErrorMessage + "\n\nSee job detail log for full list.",
+			})
+		}
 	} else {
 		job.Status = "success"
 		job.ErrorMessage = summarizeResult(result)
 	}
 	_ = r.DB.UpdateJob(ctx, job)
-	r.discardLiveSync(t.KopiaRepoPath, job.Service)
 	r.Log.Info("job finished", "id", job.ID, "status", job.Status, "snapshot", snap.ID,
 		"items", result.ItemsNew, "skipped", result.SkippedUsers, "warnings", len(result.Warnings))
 }
@@ -512,11 +625,13 @@ func (r *Runner) fail(ctx context.Context, job *db.Job, err error) {
 	_ = r.DB.UpdateJob(context.Background(), job)
 	_ = r.DB.InsertJobLog(context.Background(), &db.JobLog{JobID: job.ID, Level: "error", Message: err.Error()})
 	r.Log.Error("job failed", "id", job.ID, "err", err)
-	_ = r.Notifier.Send(context.Background(), notification.Event{
-		Type: notification.EventJobError, TenantID: job.TenantID,
-		Subject: "Backup failed: " + notification.SafeService(job.Service),
-		Body:    err.Error(),
-	})
+	if r.Notifier != nil {
+		_ = r.Notifier.Send(context.Background(), notification.Event{
+			Type: notification.EventJobError, TenantID: job.TenantID,
+			Subject: "Backup failed: " + notification.SafeService(job.Service),
+			Body:    err.Error(),
+		})
+	}
 }
 
 func (r *Runner) persistLogs(ctx context.Context, jobID string, lines []LogLine) error {

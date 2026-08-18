@@ -5,8 +5,9 @@
 # 3) Start:     docker compose up -d --build
 #
 # Host paths (edit in .env):
-#   DATA_KOPIA_PATH   → snapshot repos
-#   DATA_STAGING_PATH → temp backup staging
+#   DATA_ROOT         → one data disk; creates store/, staging/, mysql/ underneath
+#   DATA_STORE_PATH   → tenant stores (blobs). Defaults to $DATA_ROOT/store, else $DATA_STAGING_PATH/store
+#   DATA_STAGING_PATH → job temp. Defaults to $DATA_ROOT/staging
 #   MYSQL_DATA_PATH   → MySQL datadir
 #
 # Linux note: do NOT reuse a MySQL datadir that was initialized on macOS/Windows.
@@ -25,7 +26,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     volumes:
-      - ${MYSQL_DATA_PATH:-./data/mysql}:/var/lib/mysql
+      - ${MYSQL_DATA_PATH:-${DATA_ROOT:-./data}/mysql}:/var/lib/mysql
     # Not published to the host — only reachable as hostname "mysql" on the compose network
     healthcheck:
       # $$ = container env (not host interpolation). Avoids forever-"starting" with healthcheck.sh.
@@ -55,7 +56,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-m365backup}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-m365backup}
-      KOPIA_ROOT: /data/kopia
+      STORE_ROOT: /data/store
       STAGING_ROOT: /data/staging
       MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY in .env}
       ADMIN_USER: ${ADMIN_USER:-m365adminuser}
@@ -71,8 +72,8 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       SMTP_TO: ${SMTP_TO:-}
     volumes:
-      - ${DATA_KOPIA_PATH:-./data/kopia}:/data/kopia
-      - ${DATA_STAGING_PATH:-./data/staging}:/data/staging
+      - ${DATA_STORE_PATH:-${DATA_KOPIA_PATH:-${DATA_ROOT:-${DATA_STAGING_PATH:-./data}}/store}}:/data/store
+      - ${DATA_STAGING_PATH:-${DATA_ROOT:-./data}/staging}:/data/staging
     networks:
       - m365backup
 

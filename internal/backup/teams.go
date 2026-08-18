@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
 )
@@ -18,12 +17,10 @@ type TeamsBackup struct{}
 
 func (TeamsBackup) Name() string { return "teams" }
 
-func (TeamsBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore) (Result, error) {
+func (TeamsBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore, cat *catalog.Store) (Result, error) {
+	_ = stageDir
 	res := NewResult(ctx)
-	base := filepath.Join(stageDir, "teams")
-	if err := os.MkdirAll(base, 0o755); err != nil {
-		return res, err
-	}
+	cat.StartReconcile("teams")
 
 	res.Info("listing Teams…")
 	teams, err := gc.Graph.Teams().Get(ctx, nil)
@@ -37,26 +34,18 @@ func (TeamsBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant,
 			continue
 		}
 		res.ItemsTotal++
-		teamDir := filepath.Join(base, tname)
-		if err := os.MkdirAll(teamDir, 0o755); err != nil {
-			res.Warn(err.Error())
-			continue
-		}
 
 		channels, err := gc.Graph.Teams().ByTeamId(tid).Channels().Get(ctx, nil)
 		if err != nil {
-			res.Warn(tname+": "+err.Error())
+			res.Warn(tname + ": " + err.Error())
 			continue
 		}
 		for _, ch := range channels.GetValue() {
 			cid := ptrStr(ch.GetId())
 			cname := sanitize(ptrStr(ch.GetDisplayName()))
-			chDir := filepath.Join(teamDir, cname)
-			_ = os.MkdirAll(filepath.Join(chDir, "attachments"), 0o755)
-
 			msgs, err := gc.Graph.Teams().ByTeamId(tid).Channels().ByChannelId(cid).Messages().Get(ctx, nil)
 			if err != nil {
-				res.Warn(cname+": "+err.Error())
+				res.Warn(cname + ": " + err.Error())
 				continue
 			}
 			var archive []map[string]any
@@ -87,13 +76,32 @@ func (TeamsBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant,
 			}
 			htmlParts = append(htmlParts, "</body></html>")
 			jb, _ := json.MarshalIndent(archive, "", "  ")
-			_ = os.WriteFile(filepath.Join(chDir, "messages.json"), jb, 0o600)
-			_ = os.WriteFile(filepath.Join(chDir, "messages.html"), []byte(strings.Join(htmlParts, "\n")), 0o600)
+			mailbox := tname
+			parent := cname
+			jsonID := "teams:" + tid + ":" + cid + ":json"
+			htmlID := "teams:" + tid + ":" + cid + ":html"
+			if err := cat.Put(ctx, catalog.Item{
+				Service: "teams", GraphItemID: jsonID, Mailbox: mailbox, ParentPath: parent,
+				Name: "messages.json", ContentType: "application/json",
+			}, jb); err != nil {
+				res.Warn(err.Error())
+			}
+			if err := cat.Put(ctx, catalog.Item{
+				Service: "teams", GraphItemID: htmlID, Mailbox: mailbox, ParentPath: parent,
+				Name: "messages.html", ContentType: "text/html",
+			}, []byte(strings.Join(htmlParts, "\n"))); err != nil {
+				res.Warn(err.Error())
+			}
 
 			_ = tokens.UpsertDeltaToken(ctx, db.DeltaToken{
 				TenantID: tenant.ID, Service: "teams", UserID: tid + ":" + cid, Token: "sync-" + job.ID,
 			})
 		}
+	}
+	if n, err := cat.FinishReconcile(ctx, "teams"); err != nil {
+		res.Warn("reconcile: " + err.Error())
+	} else if n > 0 {
+		res.Info(fmt.Sprintf("reconcile: marked %d unseen Teams items deleted", n))
 	}
 	return res, nil
 }

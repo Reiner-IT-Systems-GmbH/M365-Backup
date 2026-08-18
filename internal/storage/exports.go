@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,11 +8,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/kopia/kopia/repo"
-	"github.com/kopia/kopia/repo/maintenance"
-	"github.com/kopia/kopia/repo/manifest"
-	"github.com/kopia/kopia/snapshot/snapshotmaintenance"
 )
 
 // PSTExportRoot is {repo}/exports/pst
@@ -126,114 +120,6 @@ func SanitizeExportName(upn string) string {
 	return s
 }
 
-// ApplySmartRetention prunes snapshots per service using Synology-style Smart Recycle.
-// Deletes are applied as Kopia manifest removals (grouped by service tag/username), then
-// a full Kopia maintenance+GC run reclaims unreferenced content so disk usage drops.
-func (e *Engine) ApplySmartRetention(ctx context.Context, repoPath, password string, policy RetentionPolicy) (deleted int, err error) {
-	snaps, err := e.ListSnapshots(ctx, repoPath, password)
-	if err != nil {
-		return 0, err
-	}
-	bySvc := map[string][]SnapshotInfo{}
-	for _, sn := range snaps {
-		svc := strings.ToLower(sn.Service)
-		if svc == "" {
-			svc = InferServiceFromSource(sn.Source)
-		}
-		if svc == "" {
-			svc = "unknown"
-		}
-		bySvc[svc] = append(bySvc[svc], sn)
-	}
-	now := time.Now().UTC()
-	var toDelete []string
-	for _, list := range bySvc {
-		sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt.After(list[j].CreatedAt) })
-		keep := SelectSmartKeepIDs(list, policy, now)
-		for _, sn := range list {
-			if keep[sn.ID] {
-				continue
-			}
-			toDelete = append(toDelete, sn.ID)
-		}
-	}
-	if len(toDelete) == 0 {
-		return 0, nil
-	}
-	mu := e.repoWriteLock(repoPath)
-	mu.Lock()
-	defer mu.Unlock()
-	err = e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {
-		return repo.WriteSession(ctx, rep, repo.WriteSessionOptions{Purpose: "m365-smart-recycle"}, func(ctx context.Context, w repo.RepositoryWriter) error {
-			for _, id := range toDelete {
-				if err := w.DeleteManifest(ctx, manifest.ID(id)); err != nil {
-					return fmt.Errorf("delete snapshot %s: %w", id, err)
-				}
-				deleted++
-			}
-			return nil
-		})
-	})
-	if err != nil {
-		return deleted, err
-	}
-	e.InvalidateSnapshotCache(repoPath)
-	// Reclaim blob space; SafetyNone is intentional after Smart Recycle (operator-approved deletes).
-	if gcErr := e.runFullGC(ctx, repoPath, password); gcErr != nil {
-		return deleted, fmt.Errorf("smart recycle deleted %d snapshots but kopia GC failed: %w", deleted, gcErr)
-	}
-	return deleted, nil
-}
-
-// ApplyRetention keeps the newest keepN snapshots (legacy count-based). Prefer ApplySmartRetention.
-func (e *Engine) ApplyRetention(ctx context.Context, repoPath, password string, keepN int) error {
-	if keepN < 1 {
-		keepN = 30
-	}
-	snaps, err := e.ListSnapshots(ctx, repoPath, password)
-	if err != nil {
-		return err
-	}
-	if len(snaps) <= keepN {
-		return nil
-	}
-	toDelete := snaps[keepN:]
-	mu := e.repoWriteLock(repoPath)
-	mu.Lock()
-	defer mu.Unlock()
-	err = e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {
-		return repo.WriteSession(ctx, rep, repo.WriteSessionOptions{Purpose: "m365-retention"}, func(ctx context.Context, w repo.RepositoryWriter) error {
-			for _, sn := range toDelete {
-				if err := w.DeleteManifest(ctx, manifest.ID(sn.ID)); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-	})
-	if err != nil {
-		return err
-	}
-	e.InvalidateSnapshotCache(repoPath)
-	return e.runFullGC(ctx, repoPath, password)
-}
-
-// runFullGC runs Kopia snapshot GC + full maintenance so deleted snapshot content is purged.
-func (e *Engine) runFullGC(ctx context.Context, repoPath, password string) error {
-	return e.withRepo(ctx, repoPath, password, func(ctx context.Context, rep repo.Repository) error {
-		dr, ok := rep.(repo.DirectRepository)
-		if !ok {
-			return fmt.Errorf("repository does not support direct maintenance/GC")
-		}
-		return repo.DirectWriteSession(ctx, dr, repo.WriteSessionOptions{Purpose: "m365-smart-recycle-gc"}, func(ctx context.Context, dw repo.DirectRepositoryWriter) error {
-			if err := snapshotmaintenance.Run(ctx, dw, maintenance.ModeFull, true, maintenance.SafetyNone); err != nil {
-				return fmt.Errorf("kopia maintenance: %w", err)
-			}
-			return nil
-		})
-	})
-}
-
 // EnsurePSTExportDir creates exports/pst and returns a new run directory.
 func EnsurePSTExportDir(repoPath string) (runID, runDir string, err error) {
 	runID = time.Now().UTC().Format("20060102T150405Z")
@@ -242,86 +128,4 @@ func EnsurePSTExportDir(repoPath string) (runID, runDir string, err error) {
 		return "", "", fmt.Errorf("mkdir pst export: %w", err)
 	}
 	return runID, runDir, nil
-}
-
-// ListExchangeMailboxes returns mailbox directory names under the Exchange live-sync root.
-func ListExchangeMailboxes(syncRoot string) ([]string, error) {
-	entries, err := os.ReadDir(syncRoot)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			out = append(out, e.Name())
-		}
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-// ListExchangeFolders returns top-level mail folder names under a mailbox in live-sync.
-func ListExchangeFolders(syncRoot, mailbox string) ([]string, error) {
-	mbDir, err := ResolveExchangeMailbox(syncRoot, mailbox)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(mbDir)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			out = append(out, e.Name())
-		}
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-// ResolveExchangeMailbox returns the absolute mailbox path under syncRoot.
-func ResolveExchangeMailbox(syncRoot, mailbox string) (string, error) {
-	mailbox = strings.TrimSpace(mailbox)
-	if mailbox == "" || strings.Contains(mailbox, "..") || strings.ContainsAny(mailbox, `/\`) {
-		return "", fmt.Errorf("ungültiges Postfach")
-	}
-	target, err := EnsureSubpath(syncRoot, mailbox)
-	if err != nil {
-		return "", fmt.Errorf("ungültiges Postfach")
-	}
-	target, err = GuardPath(target)
-	if err != nil {
-		return "", fmt.Errorf("ungültiges Postfach")
-	}
-	st, err := os.Stat(target)
-	if err != nil || !st.IsDir() {
-		return "", fmt.Errorf("Postfach nicht gefunden: %s", mailbox)
-	}
-	return target, nil
-}
-
-// ResolveExchangeFolder returns the absolute folder path under a mailbox.
-func ResolveExchangeFolder(syncRoot, mailbox, folder string) (string, error) {
-	mbDir, err := ResolveExchangeMailbox(syncRoot, mailbox)
-	if err != nil {
-		return "", err
-	}
-	folder = strings.TrimSpace(folder)
-	if folder == "" || strings.Contains(folder, "..") || strings.ContainsAny(folder, `/\`) {
-		return "", fmt.Errorf("ungültiger Ordner")
-	}
-	target, err := EnsureSubpath(mbDir, folder)
-	if err != nil {
-		return "", fmt.Errorf("ungültiger Ordner")
-	}
-	target, err = GuardPath(target)
-	if err != nil {
-		return "", fmt.Errorf("ungültiger Ordner")
-	}
-	st, err := os.Stat(target)
-	if err != nil || !st.IsDir() {
-		return "", fmt.Errorf("Ordner nicht gefunden: %s", folder)
-	}
-	return target, nil
 }

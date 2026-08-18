@@ -2,40 +2,12 @@ package storage
 
 import (
 	"archive/zip"
-	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
-
-// ExportZip restores a snapshot to a temp dir and returns a zip file path.
-func (e *Engine) ExportZip(ctx context.Context, repoPath, password, snapshotID, workDir string) (zipPath string, err error) {
-	if err := ValidateSnapshotID(snapshotID); err != nil {
-		return "", err
-	}
-	dest, err := EnsureSubpath(workDir, "restore-"+snapshotID)
-	if err != nil {
-		return "", err
-	}
-	if err := e.Restore(ctx, repoPath, password, snapshotID, dest); err != nil {
-		return "", err
-	}
-	zipPath, err = EnsureSubpath(workDir, snapshotID+".zip")
-	if err != nil {
-		return "", err
-	}
-	if err := zipDir(dest, zipPath); err != nil {
-		return "", err
-	}
-	return zipPath, nil
-}
-
-func zipDir(src, destZip string) error {
-	_, _, err := ZipDirCounted(src, destZip)
-	return err
-}
 
 // ZipDirCounted zips src into destZip and returns file count + uncompressed bytes.
 func ZipDirCounted(src, destZip string) (files int, nbytes int64, err error) {

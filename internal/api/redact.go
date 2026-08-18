@@ -10,7 +10,7 @@ import (
 // publicTenant omits encrypted secret material from API responses.
 func publicTenant(t db.Tenant) db.Tenant {
 	t.ClientSecret = ""
-	t.KopiaPassword = ""
+	t.StorePassword = ""
 	return t
 }
 

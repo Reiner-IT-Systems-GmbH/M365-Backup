@@ -48,14 +48,14 @@ func main() {
 	}
 	defer database.Close()
 
-	for _, dir := range []string{cfg.KopiaRoot, cfg.StagingRoot} {
+	for _, dir := range []string{cfg.StoreRoot, cfg.StagingRoot} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			log.Error("mkdir", "dir", dir, "err", err)
 			os.Exit(1)
 		}
 	}
 
-	runLock, err := backup.TryRunnerLock(filepath.Join(cfg.KopiaRoot, ".runner.lock"))
+	runLock, err := backup.TryRunnerLock(filepath.Join(cfg.StoreRoot, ".runner.lock"))
 	if err != nil {
 		log.Error("runner lock", "err", err)
 		os.Exit(1)
@@ -64,7 +64,13 @@ func main() {
 
 	store := storage.NewEngine()
 	tenants := &tenant.Manager{
-		DB: database, Cipher: cipher, KopiaRoot: cfg.KopiaRoot, Store: store, BaseURL: cfg.PublicBaseURL,
+		DB: database, Cipher: cipher, StoreRoot: cfg.StoreRoot, Store: store, BaseURL: cfg.PublicBaseURL,
+	}
+	if n, err := tenants.RebaseAllStorePaths(context.Background()); err != nil {
+		log.Error("rebase store paths", "err", err)
+		os.Exit(1)
+	} else if n > 0 {
+		log.Info("rebased tenant store paths onto STORE_ROOT", "count", n, "store_root", cfg.StoreRoot)
 	}
 	notifier := notification.New(database, log)
 	notifier.SMTPHost = cfg.SMTPHost
@@ -82,7 +88,6 @@ func main() {
 		backup.PSTExport{},
 	)
 	runner := backup.NewRunner(database, tenants, reg, store, notifier, cfg.StagingRoot, cfg.MaxConcurrentJobs, log)
-	runner.KeepLiveSync = cfg.KeepLiveSync
 	runner.RecoverOrphans(context.Background())
 	usageScan := backup.NewUsageScanner(database, store, tenants, log)
 	sched := backup.NewScheduler(database, runner, log)
@@ -109,6 +114,7 @@ func main() {
 		log.Error("templates", "err", err)
 		os.Exit(1)
 	}
+	log.Info("storage paths", "store_root", cfg.StoreRoot, "staging_root", cfg.StagingRoot)
 	log.Info("display timezone", "tz", cfg.DisplayTZ)
 	staticRoot, err := fs.Sub(web.Static, "static")
 	if err != nil {

@@ -66,7 +66,7 @@ func TestOpenBrowseFileRejectsTraversal(t *testing.T) {
 
 func TestEnrichBrowseEntryFromName(t *testing.T) {
 	be := BrowseEntry{Name: "Hello_World__abc123.eml"}
-	enrichBrowseEntryFromName(be.Name, &be)
+	EnrichBrowseEntryFromName(be.Name, &be)
 	if be.Subject != "Hello World" {
 		t.Fatalf("subject=%q", be.Subject)
 	}

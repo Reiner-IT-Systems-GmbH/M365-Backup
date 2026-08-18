@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/storage"
 	"github.com/rhw/m365backup/internal/tenant"
 )
 
-// UsageScanner walks tenant repos (du-style) and stores results in tenant_usage.
+// UsageScanner walks tenant store dirs (du-style) and stores results in tenant_usage.
 type UsageScanner struct {
 	DB      *db.DB
 	Store   *storage.Engine
@@ -26,14 +27,12 @@ func NewUsageScanner(database *db.DB, store *storage.Engine, tenants *tenant.Man
 	return &UsageScanner{DB: database, Store: store, Tenants: tenants, Log: log}
 }
 
-// Running reports whether a full or partial scan is in progress.
 func (u *UsageScanner) Running() bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.running
 }
 
-// RefreshAll measures every tenant. Returns false if a scan is already running.
 func (u *UsageScanner) RefreshAll(ctx context.Context) (started bool) {
 	_ = ctx
 	u.mu.Lock()
@@ -71,7 +70,6 @@ func (u *UsageScanner) RefreshAll(ctx context.Context) (started bool) {
 	return true
 }
 
-// RefreshTenant measures one tenant synchronously (or waits if a full scan holds the lock briefly).
 func (u *UsageScanner) RefreshTenant(ctx context.Context, tenantID string) error {
 	t, err := u.DB.GetTenant(ctx, tenantID)
 	if err != nil {
@@ -80,7 +78,6 @@ func (u *UsageScanner) RefreshTenant(ctx context.Context, tenantID string) error
 	u.mu.Lock()
 	if u.running {
 		u.mu.Unlock()
-		// Still allow single-tenant refresh while full scan runs — measure without global lock.
 		return u.refreshOne(ctx, t)
 	}
 	u.running = true
@@ -94,20 +91,28 @@ func (u *UsageScanner) RefreshTenant(ctx context.Context, tenantID string) error
 }
 
 func (u *UsageScanner) refreshOne(ctx context.Context, t *db.Tenant) error {
+	if u.Tenants != nil {
+		if _, err := u.Tenants.BindStorePath(ctx, t); err != nil {
+			return err
+		}
+	}
 	_, pass, err := u.Tenants.DecryptSecrets(t)
 	if err != nil {
 		return err
 	}
-	snaps, _ := u.Store.ListSnapshots(ctx, t.KopiaRepoPath, pass)
-	jobs, _ := u.DB.ListJobs(ctx, t.ID, 200)
-	m := map[string]string{}
-	for _, j := range jobs {
-		if j.KopiaSnapshot != "" && j.Service != "" {
-			m[j.KopiaSnapshot] = j.Service
-		}
+	cat, err := catalog.Open(u.DB, t.ID, t.StorePath, pass)
+	if err != nil {
+		return err
 	}
-	storage.AnnotateServices(snaps, m)
-	report, err := u.Store.MeasureUsage(t.KopiaRepoPath, snaps)
+	snaps, _ := cat.SnapshotInfos(ctx, "")
+	live, top, _ := cat.LiveLogicalUsage(ctx)
+	snapBytes, snapCount, _ := cat.SnapshotCounts(ctx)
+	report, err := u.Store.MeasureUsageEx(t.StorePath, snaps, storage.UsageExtras{
+		LiveByService: live,
+		SnapByService: snapBytes,
+		SnapCount:     snapCount,
+		TopUsers:      top,
+	})
 	if err != nil {
 		return err
 	}

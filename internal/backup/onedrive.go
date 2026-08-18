@@ -3,7 +3,6 @@ package backup
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,11 +12,12 @@ import (
 	"github.com/microsoftgraph/msgraph-sdk-go/drives"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
 )
 
-// OneDriveBackup syncs personal drives into a persistent tree with Graph delta.
+// OneDriveBackup syncs personal drives into the catalog with Graph delta.
 // Empty drives and empty folders are not created / not logged individually.
 type OneDriveBackup struct {
 	Workers int
@@ -32,7 +32,7 @@ func (o OneDriveBackup) workers() int {
 	return o.Workers
 }
 
-func (o OneDriveBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore) (Result, error) {
+func (o OneDriveBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore, cat *catalog.Store) (Result, error) {
 	res := NewResult(ctx)
 	prog := ProgressFrom(ctx)
 	workers := o.workers()
@@ -43,12 +43,6 @@ func (o OneDriveBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Te
 	if err != nil {
 		return res, fmt.Errorf("list users: %w", err)
 	}
-
-	syncBase := filepath.Join(tenant.KopiaRepoPath, "sync", "onedrive")
-	if err := os.MkdirAll(syncBase, 0o755); err != nil {
-		return res, err
-	}
-	res.SnapshotDir = syncBase
 
 	total := len(users)
 	res.Info(fmt.Sprintf("listed %d directory objects; OneDrive sync with %d workers (delta after first run; empty drives skipped)",
@@ -74,7 +68,7 @@ func (o OneDriveBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Te
 				if ctx.Err() != nil {
 					return
 				}
-				o.backupOneDrive(ctx, gc, tenant, job, tokens, syncBase, it.idx, total, it.u, &res, prog, &okCount, &doneN)
+				o.backupOneDrive(ctx, gc, tenant, job, tokens, cat, it.idx, total, it.u, &res, prog, &okCount, &doneN)
 			}
 		}()
 	}
@@ -98,14 +92,13 @@ func (o OneDriveBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Te
 		itemsNew, okCount.Load(), skipped, itemsTotal, bytes)
 	res.Info(done)
 	prog.SyncJob(job, &res, 92, done)
-	_ = os.WriteFile(filepath.Join(syncBase, "BACKUP_META.txt"), []byte(done+"\n"), 0o600)
-	_ = os.WriteFile(filepath.Join(stageDir, "SNAPSHOT_ROOT.txt"), []byte(syncBase+"\n"), 0o600)
+	_ = stageDir
 	return res, nil
 }
 
 func (o OneDriveBackup) backupOneDrive(
 	ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, tokens TokenStore,
-	syncBase string, idx, total int, u models.Userable, res *Result, prog *Progress,
+	cat *catalog.Store, idx, total int, u models.Userable, res *Result, prog *Progress,
 	okCount, doneN *atomic.Int64,
 ) {
 	uid := ptrStr(u.GetId())
@@ -155,14 +148,13 @@ func (o OneDriveBackup) backupOneDrive(
 	}
 	prog.SyncJob(job, res, pctFor(), fmt.Sprintf("[%d/%d] OneDrive %s (%s)…", idx+1, total, upn, mode))
 
-	userDir := filepath.Join(syncBase, sanitize(upn))
-	n, warn := syncDriveDelta(ctx, gc, tokens, tenant.ID, uid, upn, driveID, userDir, saved, res)
+	userKey := sanitize(upn)
+	n, warn := syncDriveDelta(ctx, gc, tokens, tenant.ID, uid, upn, driveID, userKey, saved, cat, res)
 	for _, w := range warn {
 		res.Warn(w)
 	}
 
-	if n == 0 && !dirHasFiles(userDir) {
-		_ = os.RemoveAll(userDir)
+	if n == 0 {
 		res.Skip("")
 		doneN.Add(1)
 		return
@@ -176,7 +168,7 @@ func (o OneDriveBackup) backupOneDrive(
 }
 
 func syncDriveDelta(
-	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, driveID, userDir, saved string, res *Result,
+	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, driveID, mailbox, saved string, cat *catalog.Store, res *Result,
 ) (int, []string) {
 	var warnings []string
 	hdr := abstractions.NewRequestHeaders()
@@ -224,20 +216,24 @@ func syncDriveDelta(
 			if rel == "" || rel == "." {
 				continue
 			}
-			abs := filepath.Join(userDir, rel)
-			if !underRoot(userDir, abs) {
+			relSlash := filepath.ToSlash(rel)
+			if strings.Contains(relSlash, "..") {
 				warnings = append(warnings, fmt.Sprintf("%s: rejected path %q", upn, rel))
 				continue
 			}
 
 			if isDriveItemRemoved(item) {
-				_ = os.RemoveAll(abs)
-				pruneEmptyDirs(filepath.Dir(abs), userDir)
+				_ = cat.DeletePrefix(ctx, "onedrive", mailbox, relSlash)
+				if item.GetFile() != nil {
+					itemID := ptrStr(item.GetId())
+					if itemID != "" {
+						_ = cat.Delete(ctx, "onedrive", itemID)
+					}
+				}
 				n++
 				res.addItems(1, 0)
 				continue
 			}
-			// Folders: do not create empty dirs — only materialize when a file needs them.
 			if item.GetFolder() != nil && item.GetFile() == nil {
 				continue
 			}
@@ -254,11 +250,15 @@ func syncDriveDelta(
 				warnings = append(warnings, fmt.Sprintf("%s %s: %v", upn, rel, err))
 				continue
 			}
-			if err := ensureParent(abs); err != nil {
-				warnings = append(warnings, err.Error())
-				continue
+			parent := filepath.ToSlash(filepath.Dir(relSlash))
+			if parent == "." {
+				parent = ""
 			}
-			if err := os.WriteFile(abs, data, 0o600); err != nil {
+			it := catalog.Item{
+				Service: "onedrive", GraphItemID: itemID, Mailbox: mailbox,
+				ParentPath: parent, Name: filepath.Base(relSlash),
+			}
+			if err := cat.Put(ctx, it, data); err != nil {
 				warnings = append(warnings, err.Error())
 				continue
 			}

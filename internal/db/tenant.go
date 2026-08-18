@@ -15,8 +15,8 @@ type Tenant struct {
 	ClientID      string
 	ClientSecret  string // encrypted at rest
 	SecretExpires time.Time
-	KopiaPassword string // encrypted at rest
-	KopiaRepoPath string
+	StorePassword string // encrypted at rest
+	StorePath     string
 	Status        string
 	RetentionJSON string // Smart Recycle policy JSON
 	CreatedAt     time.Time
@@ -35,10 +35,10 @@ func (d *DB) CreateTenant(ctx context.Context, t *Tenant) error {
 	}
 	_, err := d.SQL.ExecContext(ctx, `
 		INSERT INTO tenants (id, name, azure_tenant_id, client_id, client_secret, secret_expires,
-			kopia_password, kopia_repo_path, status, retention_json, created_at, updated_at)
+			store_password, store_path, status, retention_json, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Name, t.AzureTenantID, t.ClientID, t.ClientSecret, NullTime(t.SecretExpires),
-		t.KopiaPassword, t.KopiaRepoPath, t.Status, nullEmpty(t.RetentionJSON), t.CreatedAt, t.UpdatedAt,
+		t.StorePassword, t.StorePath, t.Status, nullEmpty(t.RetentionJSON), t.CreatedAt, t.UpdatedAt,
 	)
 	return err
 }
@@ -47,10 +47,10 @@ func (d *DB) UpdateTenant(ctx context.Context, t *Tenant) error {
 	t.UpdatedAt = time.Now().UTC()
 	_, err := d.SQL.ExecContext(ctx, `
 		UPDATE tenants SET name=?, azure_tenant_id=?, client_id=?, client_secret=?, secret_expires=?,
-			kopia_password=?, kopia_repo_path=?, status=?, retention_json=?, updated_at=?
+			store_password=?, store_path=?, status=?, retention_json=?, updated_at=?
 		WHERE id=?`,
 		t.Name, t.AzureTenantID, t.ClientID, t.ClientSecret, NullTime(t.SecretExpires),
-		t.KopiaPassword, t.KopiaRepoPath, t.Status, nullEmpty(t.RetentionJSON), t.UpdatedAt, t.ID,
+		t.StorePassword, t.StorePath, t.Status, nullEmpty(t.RetentionJSON), t.UpdatedAt, t.ID,
 	)
 	return err
 }
@@ -71,7 +71,7 @@ func (d *DB) DeleteTenant(ctx context.Context, id string) error {
 func (d *DB) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	row := d.SQL.QueryRowContext(ctx, `
 		SELECT id, name, azure_tenant_id, client_id, client_secret, secret_expires,
-			kopia_password, kopia_repo_path, status, COALESCE(retention_json,''), created_at, updated_at
+			store_password, store_path, status, COALESCE(retention_json,''), created_at, updated_at
 		FROM tenants WHERE id=?`, id)
 	return scanTenant(row)
 }
@@ -79,7 +79,7 @@ func (d *DB) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 func (d *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	rows, err := d.SQL.QueryContext(ctx, `
 		SELECT id, name, azure_tenant_id, client_id, client_secret, secret_expires,
-			kopia_password, kopia_repo_path, status, COALESCE(retention_json,''), created_at, updated_at
+			store_password, store_path, status, COALESCE(retention_json,''), created_at, updated_at
 		FROM tenants ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func scanTenant(row scannable) (*Tenant, error) {
 	var exp sql.NullTime
 	var retention sql.NullString
 	err := row.Scan(&t.ID, &t.Name, &t.AzureTenantID, &t.ClientID, &t.ClientSecret, &exp,
-		&t.KopiaPassword, &t.KopiaRepoPath, &t.Status, &retention, &t.CreatedAt, &t.UpdatedAt)
+		&t.StorePassword, &t.StorePath, &t.Status, &retention, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

@@ -17,8 +17,8 @@ func TestTenantAndDeltaToken(t *testing.T) {
 
 	ten := &db.Tenant{
 		Name: "Acme", AzureTenantID: "11111111-1111-1111-1111-111111111111",
-		ClientID: "cid", ClientSecret: "enc-placeholder", KopiaPassword: "enc-kopia",
-		KopiaRepoPath: "/tmp/kopia/x", Status: "setup",
+		ClientID: "cid", ClientSecret: "enc-placeholder", StorePassword: "enc-store",
+		StorePath: "/tmp/store/x", Status: "setup",
 	}
 	if err := database.CreateTenant(context.Background(), ten); err != nil {
 		t.Fatal(err)
@@ -103,8 +103,8 @@ func TestOneActiveJobPerService(t *testing.T) {
 	ctx := context.Background()
 	ten := &db.Tenant{
 		Name: "Acme", AzureTenantID: "22222222-2222-2222-2222-222222222222",
-		ClientID: "cid", ClientSecret: "enc-placeholder", KopiaPassword: "enc-kopia",
-		KopiaRepoPath: "/tmp/kopia/y", Status: "active",
+		ClientID: "cid", ClientSecret: "enc-placeholder", StorePassword: "enc-store",
+		StorePath: "/tmp/store/y", Status: "active",
 	}
 	if err := database.CreateTenant(ctx, ten); err != nil {
 		t.Fatal(err)
@@ -144,8 +144,8 @@ func TestListActiveAndRecentJobs(t *testing.T) {
 	ctx := context.Background()
 	ten := &db.Tenant{
 		Name: "Acme", AzureTenantID: "33333333-3333-3333-3333-333333333333",
-		ClientID: "cid", ClientSecret: "enc-placeholder", KopiaPassword: "enc-kopia",
-		KopiaRepoPath: "/tmp/kopia/z", Status: "active",
+		ClientID: "cid", ClientSecret: "enc-placeholder", StorePassword: "enc-store",
+		StorePath: "/tmp/store/z", Status: "active",
 	}
 	if err := database.CreateTenant(ctx, ten); err != nil {
 		t.Fatal(err)

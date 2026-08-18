@@ -13,7 +13,7 @@ FROM gcr.io/distroless/static-debian12
 WORKDIR /app
 COPY --from=build /out/m365backup /app/m365backup
 ENV HTTP_ADDR=:8080 \
-    KOPIA_ROOT=/data/kopia \
+    STORE_ROOT=/data/store \
     STAGING_ROOT=/data/staging \
     DB_DRIVER=mysql
 EXPOSE 8080

@@ -22,6 +22,9 @@ Schema-Migrationen laufen beim Open. MySQL: Duplicate-Column tolerant (DDL auto-
 | `005_usage_cache` | `tenant_usage` |
 | `006_job_params` | `jobs.params` |
 | `007_users` | users, api_tokens (bcrypt, Bearer-Scopes) |
+| `008_job_active_lock` | ein aktiver Job pro Tenant+Service |
+| `009_catalog` | catalog_snapshots, catalog_items, catalog_changes |
+| `010_store_rename` | `store_password`, `store_path`, `jobs.snapshot_id` |
 
 ## Kern-Entities
 
@@ -32,8 +35,8 @@ Schema-Migrationen laufen beim Open. MySQL: Duplicate-Column tolerant (DDL auto-
 | Status `setup` | Angelegt, Consent noch ausstehend — Scheduler ignoriert |
 | Status `active` | Consent ok — Cron darf Jobs starten |
 | `client_secret` | encrypted |
-| `kopia_password` | encrypted |
-| `kopia_repo_path` | `{KOPIA_ROOT}/{tenant-uuid}` |
+| `store_password` | encrypted Store-Passwort |
+| `store_path` | `{STORE_ROOT}/{tenant-uuid}` (Store-Root) |
 | `retention_json` | Smart-Recycle-Policy |
 
 ### Schedule
@@ -50,7 +53,7 @@ queued → running → success | warning | error | cancelled
 | Feld | Bedeutung |
 |------|-----------|
 | `job_type` | typisch `delta`, `full`, `export` |
-| `kopia_snapshot` | Snapshot-ID oder PST-Run-Basename |
+| `snapshot_id` | Katalog-Snapshot-ID oder PST-Run-Basename |
 | Progress-Felder | für HTMX-Live-UI |
 
 ### DeltaToken
@@ -74,12 +77,12 @@ Levels: `info` \| `warn` \| `error` \| `skip`.
 
 ### TenantUsage
 
-Gecachtes Usage-Report-JSON — damit die Statistik-UI nicht jedes Mal `du` über alle Repos macht.
+Gecachtes Usage-Report-JSON — damit die Statistik-UI nicht jedes Mal `du` über alle Stores macht.
 
 ## Was die DB bewusst nicht ist
 
 - Kein Blob-Store für EMLs/Dateien
-- Kein Ersatz für Kopia-Historie
+- Kein Ersatz für die Snapshot-Historie auf Disk (Manifeste + Blobs)
 - Kein Audit-Log / RBAC (noch Roadmap)
 
 **Gedanke:** Control Plane schlank halten → Backup-Daten skalieren auf der Platte, nicht in der DB.

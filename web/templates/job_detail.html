@@ -24,8 +24,8 @@
       · {{.Job.Service}} · {{fmtTime .Job.CreatedAt "02.01.2006 15:04:05"}}
       · Items {{.Job.ItemsNew}}/{{.Job.ItemsTotal}}
       · {{.Job.BytesTransferred}} {{.L.T "jobs.bytes"}}
-      {{if .Job.KopiaSnapshot}}
-      · {{.L.T "jobs.snapshot"}} <a href="/tenants/{{.Tenant.ID}}/browser?service={{.Job.Service}}&amp;version={{.Job.KopiaSnapshot}}"><code>{{.Job.KopiaSnapshot}}</code></a>
+      {{if .Job.SnapshotID}}
+      · {{.L.T "jobs.snapshot"}} <a href="/tenants/{{.Tenant.ID}}/browser?service={{.Job.Service}}&amp;version={{.Job.SnapshotID}}"><code>{{.Job.SnapshotID}}</code></a>
       {{end}}
     </p>
 

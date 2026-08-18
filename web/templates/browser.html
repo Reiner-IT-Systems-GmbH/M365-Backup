@@ -22,7 +22,7 @@
     <h1>{{.L.T "browser.title"}}</h1>
     <p class="muted">{{.L.T "browser.hint"}}
       {{if .Usage}} · {{.L.T "browser.storage_total"}} <strong>{{.Usage.TotalHuman}}</strong>
-        ({{.L.T "tenant.snapshots"}} {{.Usage.SnapshotsHuman}}, Sync {{.Usage.SyncHuman}})
+        ({{.L.T "tenant.snapshots"}} {{.Usage.SnapshotsHuman}}, {{.L.T "tenant.live_sync"}} {{.Usage.SyncHuman}})
       {{end}}
     </p>
 

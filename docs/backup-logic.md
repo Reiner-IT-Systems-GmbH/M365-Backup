@@ -1,28 +1,27 @@
-# Backup-Logik: Sync, Snapshots, Scheduler, Locks
+# Backup-Logik: Katalog, Snapshots, Scheduler, Locks
 
-> Teil der Design-Docs — Übersicht: [README.md](README.md) · Jobs/Dienste: [backup-jobs.md](backup-jobs.md) · Speicher: [speicher-kopia.md](speicher-kopia.md)
+> Teil der Design-Docs — Übersicht: [README.md](README.md) · Jobs/Dienste: [backup-jobs.md](backup-jobs.md) · Speicher: [speicher-katalog.md](speicher-katalog.md)
 
 Dieses Dokument beschreibt, wie M365 Backup Daten speichert, inkrementell sichert,
-Jobs plant und Überlappungen verhindert — inkl. **warum** Live-Sync und Snapshots
-nebeneinander liegen und wozu der Service-Lock da ist.
+Jobs plant und Überlappungen verhindert.
 
 ## Überblick
 
 ```text
-Graph (delta) ──► Live-Sync-Baum (sync/<service>/)
+Graph (delta) ──► catalog.Put / Delete ──► blobs/ (AES-GCM CAS)
                         │
                         ▼
-                 Kopia-Snapshot (repo/)
+              CommitSnapshot (Generation + Manifest)
                         │
                         ▼
-              Smart Recycle + GC
+              Smart Recycle + Blob-GC
 ```
 
 | Begriff | Bedeutung |
 |--------|-----------|
-| **Live-Sync** | Persistenter Arbeitsbaum unter `{KOPIA_ROOT}/{tenant}/sync/` — Grundlage für Graph-Delta |
-| **Snapshot** | Verschlüsselter Punkt-in-Zeit in Kopia (`repo/`) — dedupliziert |
-| **Job** | Ein Lauf eines Dienstes (`exchange`, `onedrive`, …) — queued → running → success/… |
+| **Aktuell** | Live-Zeilen in `catalog_items` (`deleted=0`) |
+| **Snapshot** | Eine Generation (`catalog_snapshots` + Manifest auf Disk) |
+| **Job** | Ein Lauf eines Dienstes — queued → running → success/… |
 | **Schedule** | Cron-Ausdruck pro Tenant+Dienst |
 
 ---
@@ -30,35 +29,20 @@ Graph (delta) ──► Live-Sync-Baum (sync/<service>/)
 ## Speicherlayout (pro Tenant)
 
 ```text
-{KOPIA_ROOT}/{tenant-id}/
-  repo/              Kopia-Repository (echte Snapshot-Bytes, dedup)
-  kopia.config
-  .kopia-cache/
-  sync/
-    exchange/        Live-Mailboxen (EML-Bäume)
-    onedrive/        …
-  exports/pst/       PST-/EML-ZIP-Exporte
+{STORE_ROOT}/{tenant-id}/
+  blobs/{hh}/{sha256}
+  manifests/{service}/{generation}.json.zst
+  exports/pst/
 ```
 
-### Warum nicht dauerhaft Live-Sync + Snapshots?
-
-Standard (`KEEP_LIVE_SYNC` aus): Zwischen den Jobs liegen nur **Kopia-Snapshots**.
-Vor Exchange/OneDrive (und PST) wird der letzte Snapshot in `sync/` geholt, Delta
-läuft wie bisher, nach erfolgreichem Snapshot wird `sync/{dienst}` gelöscht.
-
-- **Während** eines Jobs kann die Platte kurz ≈ Sync + Snapshots brauchen.
-- **Danach** bleibt vor allem `repo/` (plus Cache/Exports).
-- `KEEP_LIVE_SYNC=true` lässt den Baum liegen (schnellere stündliche Läufe, ~2× Platz).
-
-Die Statistik-Spalte **„Snaps (logisch)“** summiert die Inhaltsgröße je Snapshot-Manifest
-(`TotalFileSize`). Das ist **nicht** der Plattenverbrauch — der steht unter „Snapshots (Kopia, dedup)“.
+Gesamt-Plattenbedarf ≈ Blobs (dedup) + Manifeste + Exports. Kein zweiter Klartext-Baum.
 
 ### Zwei Inkrement-Ebenen
 
-1. **Microsoft Graph Delta** — nach dem ersten Full-Sync nur Änderungen in den Live-Baum.
-2. **Kopia Content-Addressing** — Snapshot speichert nur neue/geänderte Blöcke.
-   Dafür muss der Uploader den **letzten Snapshot derselben Source** kennen
-   (`FindPreviousManifests` → `Upload(..., previous...)`). Sonst Full-Scan trotz Dedup.
+1. **Microsoft Graph Delta** — nach dem ersten Full-Sync nur Änderungen in den Katalog.
+2. **Content-Addressed Blobs** — gleicher SHA-256 wird nicht zweimal geschrieben.
+
+Ist der Katalog leer und kein `sync/` mehr da, löscht der Runner die Delta-Tokens und macht einen Graph-Full (`job_type=full`). Scheduler- und UI-Inkremente werden in diesem Fall zu Full. Fehlt der Katalog tenant-weit (kein Snapshot, kein `sync/`, keine Blobs), startet der erste Lauf einen Full-Sync **aller** enabled Graph-Dienste. Alte `repo/`-Snapshots werden **nicht** importiert.
 
 ---
 
@@ -87,17 +71,16 @@ Zeiten sind bewusst gestaffelt, damit nicht alle Dienste in derselben Minute feu
 **Regel:** Pro Tenant+Service darf höchstens **ein** Job in `queued` oder `running` sein.
 Läuft ein **Full-Sync** (`job_type=full`), dürfen **keine Inkremente** (Cron/UI, jeder
 Dienst) für denselben Tenant starten — sonst schreiben sie in einen halbfertigen
-Live-Baum und können eine weitere Vollkopie als Snapshot ablegen.
+Katalog und können eine weitere unfertige Generation ablegen.
 
 Unterschiedliche Dienste dürfen parallel laufen, **solange kein Full-Sync aktiv ist**
 (z. B. zwei Fulls Exchange+OneDrive aus einem UI-Klick).
 
 ### Warum?
 
-- Zwei Exchange-Läufe gleichzeitig verdoppeln Graph-Last und schreiben in denselben `sync/exchange`-Baum.
-- Ein stündliches Inkrement während eines mehrstündigen Full-Syncs erzeugt „Datenmüll“
-  (nochmal ~Mailbox-Größe), weil Tokens fehlen oder der Baum noch nicht konsistent ist.
-- Kopia-Schreibzugriffe auf dasselbe Tenant-Repo werden separat serialisiert (Repo-Write-Lock).
+- Zwei Exchange-Läufe gleichzeitig verdoppeln Graph-Last und schreiben in denselben Katalog.
+- Ein stündliches Inkrement während eines mehrstündigen Full-Syncs erzeugt „Datenmüll“,
+  weil Tokens fehlen oder der Katalog noch nicht konsistent ist.
 
 ### Umsetzung
 
@@ -107,12 +90,12 @@ Unterschiedliche Dienste dürfen parallel laufen, **solange kein Full-Sync aktiv
    pro Tenant+Service (auch über Prozessgrenzen).
 3. **Prozess-Mutex** um den Enqueue-Check, damit zwei Cron-Fires nicht gleichzeitig
    „frei“ sehen.
-4. **Service-Gate** während `runJob` plus **Datei-Lock** `{repo}/.locks/{service}.lock`.
-5. **Instance-Lock** `{KOPIA_ROOT}/.runner.lock` — zweite Instanz startet nicht
+4. **Service-Gate** während `runJob` plus **Datei-Lock** `{store}/.locks/{service}.lock`.
+5. **Instance-Lock** `{STORE_ROOT}/.runner.lock` — zweite Instanz startet nicht
    (sonst würde `RecoverOrphans` den DB-Lock der ersten freigeben).
 6. **Delta-Tokens** werden erst gelöscht, wenn der Full-Job wirklich eingereiht wird
    (nicht schon beim Klick, falls der Dienst busy ist).
-7. **Kopia Repo-Write-Lock**: Snapshots/Retention am selben Repo nacheinander.
+7. **Catalog Commit** serialisiert Generationen pro Tenant-Store (Datei-Lock + Job-Gate).
 8. **Global** `MAX_CONCURRENT_JOBS`: begrenzt parallele Jobs **über alle Tenants**
    (Semaphore).
 
@@ -138,7 +121,7 @@ Enqueue ──► queued ──► (sem + service gate) ──► running
                                          cancelled
 ```
 
-Nach erfolgreichem Service-Lauf: Kopia-Snapshot (außer PST-Export) → Smart Recycle → optional GC.
+Nach erfolgreichem Service-Lauf: Katalog-Snapshot (außer PST-Export) → Smart Recycle → Blob-GC.
 
 Beim Prozessstart: `RecoverOrphans` markiert hängengebliebene `queued`/`running` als `error`.
 
@@ -146,19 +129,17 @@ Beim Prozessstart: `RecoverOrphans` markiert hängengebliebene `queued`/`running
 
 ## Browser / Snapshots-UI
 
-- Snapshot-**Liste** wird kurz gecacht (TTL), damit die Tenant-Seite nicht jedes Mal
-  das Repo öffnen muss.
-- Browse/Download historischer Snapshots läuft über Kopias Virtual-FS (**ohne** Full-Extract
+- Snapshot-**Liste** kommt aus `catalog_snapshots` (kein Repo-Open).
+- Browse/Download historischer Generationen läuft über Manifest + Blobs (**ohne** Full-Extract
   der gesamten Mailbox auf Staging).
-- **Live-Sync** im Dateibrowser ist der schnellste Weg zum aktuellen Stand.
+- **Aktuell** im Dateibrowser ist der Live-Stand in `catalog_items`.
 
 ---
 
 ## Retention (Smart Recycle)
 
 Pro Dienst: alle Versionen in den letzten *N* Stunden, danach höchstens eine pro Tag /
-Woche / Monat / Jahr (+ Mindestanzahl). Gelöschte Manifeste werden per Kopia-Maintenance/GC
-freigegeben.
+Woche / Monat / Jahr (+ Mindestanzahl). Unreferenzierte Blobs werden per GC gelöscht.
 
 ---
 
@@ -168,6 +149,6 @@ freigegeben.
 |----------|--------|
 | `MAX_CONCURRENT_JOBS` | Max. parallele Jobs global (verschiedene Tenants) |
 | `EXCHANGE_WORKERS` | Parallele Mailbox-Worker **innerhalb** eines Exchange-Jobs |
-| `KOPIA_ROOT` | Wurzel der Tenant-Repos |
+| `STORE_ROOT` | Wurzel der Tenant-Stores (Blobs/Manifeste/Exports) |
 
 Siehe auch `.env.example` und `README.md`.

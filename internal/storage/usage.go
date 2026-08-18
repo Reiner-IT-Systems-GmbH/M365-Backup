@@ -11,17 +11,17 @@ import (
 
 // ServiceUsage is per-service disk accounting (for UI + billing APIs).
 type ServiceUsage struct {
-	Service        string `json:"service"`
-	SyncBytes      int64  `json:"sync_bytes"`
-	SyncHuman      string `json:"sync_human"`
-	SnapshotBytes  int64  `json:"snapshot_bytes"`
-	SnapshotHuman  string `json:"snapshot_human"`
-	SnapshotCount  int    `json:"snapshot_count"`
-	TotalBytes     int64  `json:"total_bytes"`
-	TotalHuman     string `json:"total_human"`
+	Service       string `json:"service"`
+	SyncBytes     int64  `json:"sync_bytes"`
+	SyncHuman     string `json:"sync_human"`
+	SnapshotBytes int64  `json:"snapshot_bytes"`
+	SnapshotHuman string `json:"snapshot_human"`
+	SnapshotCount int    `json:"snapshot_count"`
+	TotalBytes    int64  `json:"total_bytes"`
+	TotalHuman    string `json:"total_human"`
 }
 
-// UserUsage is per-mailbox / per-drive sync usage (live tree).
+// UserUsage is per-mailbox / per-drive live catalog usage.
 type UserUsage struct {
 	User    string  `json:"user"`
 	Service string  `json:"service"`
@@ -30,7 +30,7 @@ type UserUsage struct {
 	GB      float64 `json:"gb"`
 }
 
-// UsageReport is tenant storage usage (roughly `du -hs` of the repo).
+// UsageReport is tenant storage usage (blobs + manifests + exports).
 type UsageReport struct {
 	TenantID       string         `json:"tenant_id,omitempty"`
 	RepoPath       string         `json:"repo_path"`
@@ -57,7 +57,6 @@ func DirSize(root string) (int64, error) {
 	var total int64
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			// Missing path is fine (no sync yet).
 			if os.IsNotExist(err) {
 				return nil
 			}
@@ -79,7 +78,6 @@ func DirSize(root string) (int64, error) {
 	return total, nil
 }
 
-// FormatBytes formats byte counts similar to `du -h` (binary units).
 func FormatBytes(n int64) string {
 	if n < 0 {
 		n = 0
@@ -101,7 +99,6 @@ func FormatBytes(n int64) string {
 	return fmt.Sprintf("%.1f %sB", value, suffix)
 }
 
-// BytesToGB returns GiB with 2 decimal places.
 func BytesToGB(n int64) float64 {
 	if n <= 0 {
 		return 0
@@ -109,22 +106,32 @@ func BytesToGB(n int64) float64 {
 	return float64(n) / (1024 * 1024 * 1024)
 }
 
-// MeasureUsage walks the tenant repo and returns a billing-friendly usage report.
+// UsageExtras supplies catalog logical sizes (optional).
+type UsageExtras struct {
+	LiveByService map[string]int64
+	SnapByService map[string]int64
+	SnapCount     map[string]int
+	TopUsers      []UserUsage
+}
+
+// MeasureUsage walks blobs + manifests + exports. extras fills per-service logical columns.
 func (e *Engine) MeasureUsage(repoPath string, snaps []SnapshotInfo) (*UsageReport, error) {
+	return e.MeasureUsageEx(repoPath, snaps, UsageExtras{})
+}
+
+func (e *Engine) MeasureUsageEx(repoPath string, snaps []SnapshotInfo, extras UsageExtras) (*UsageReport, error) {
 	_ = e
 	total, _ := DirSize(repoPath)
-	snapDir := RepoDataDir(repoPath)
-	snapBytes, _ := DirSize(snapDir)
-	syncDir := filepath.Join(repoPath, "sync")
-	syncBytes, _ := DirSize(syncDir)
+	blobBytes, _ := DirSize(BlobsDir(repoPath))
+	manBytes, _ := DirSize(ManifestsDir(repoPath))
+	snapBytes := blobBytes + manBytes
 	exportsDir := filepath.Join(repoPath, "exports")
 	exportsBytes, _ := DirSize(exportsDir)
-	other := total - snapBytes - syncBytes - exportsBytes
+	other := total - snapBytes - exportsBytes
 	if other < 0 {
 		other = 0
 	}
 
-	services := []string{"exchange", "onedrive", "teams", "sharepoint"}
 	bySnapSvc := map[string]int64{}
 	bySnapCount := map[string]int{}
 	for _, sn := range snaps {
@@ -135,22 +142,28 @@ func (e *Engine) MeasureUsage(repoPath string, snaps []SnapshotInfo) (*UsageRepo
 		if svc == "" {
 			svc = "unknown"
 		}
-		// Logical snapshot size (Kopia dedup means on-disk bytes are shared across snaps).
 		bySnapSvc[svc] += sn.Bytes
 		bySnapCount[svc]++
 	}
+	for svc, n := range extras.SnapByService {
+		bySnapSvc[svc] = n
+	}
+	for svc, n := range extras.SnapCount {
+		bySnapCount[svc] = n
+	}
 
+	services := []string{"exchange", "onedrive", "teams", "sharepoint"}
 	var byService []ServiceUsage
 	var largestSvc string
 	var largestSvcBytes int64
 	for _, svc := range services {
-		sb, _ := DirSize(filepath.Join(syncDir, svc))
+		live := extras.LiveByService[svc]
 		ss := bySnapSvc[svc]
-		totalSvc := sb + ss
+		totalSvc := live + ss
 		u := ServiceUsage{
 			Service:       svc,
-			SyncBytes:     sb,
-			SyncHuman:     FormatBytes(sb),
+			SyncBytes:     live,
+			SyncHuman:     FormatBytes(live),
 			SnapshotBytes: ss,
 			SnapshotHuman: FormatBytes(ss),
 			SnapshotCount: bySnapCount[svc],
@@ -163,18 +176,12 @@ func (e *Engine) MeasureUsage(repoPath string, snaps []SnapshotInfo) (*UsageRepo
 			largestSvc = svc
 		}
 	}
-	if unk := bySnapSvc["unknown"]; unk > 0 {
-		byService = append(byService, ServiceUsage{
-			Service:       "unknown",
-			SnapshotBytes: unk,
-			SnapshotHuman: FormatBytes(unk),
-			SnapshotCount: bySnapCount["unknown"],
-			TotalBytes:    unk,
-			TotalHuman:    FormatBytes(unk),
-		})
-	}
 
-	topUsers := collectTopUsers(syncDir, 20)
+	topUsers := extras.TopUsers
+	if len(topUsers) > 20 {
+		topUsers = topUsers[:20]
+	}
+	sort.Slice(topUsers, func(i, j int) bool { return topUsers[i].Bytes > topUsers[j].Bytes })
 	largestUser := ""
 	if len(topUsers) > 0 {
 		largestUser = topUsers[0].User + " (" + topUsers[0].Human + ")"
@@ -188,8 +195,8 @@ func (e *Engine) MeasureUsage(repoPath string, snaps []SnapshotInfo) (*UsageRepo
 		TotalGB:        round2(BytesToGB(total)),
 		SnapshotsBytes: snapBytes,
 		SnapshotsHuman: FormatBytes(snapBytes),
-		SyncBytes:      syncBytes,
-		SyncHuman:      FormatBytes(syncBytes),
+		SyncBytes:      sumMap(extras.LiveByService),
+		SyncHuman:      FormatBytes(sumMap(extras.LiveByService)),
 		OtherBytes:     other,
 		OtherHuman:     FormatBytes(other),
 		ExportsBytes:   exportsBytes,
@@ -201,40 +208,12 @@ func (e *Engine) MeasureUsage(repoPath string, snaps []SnapshotInfo) (*UsageRepo
 	}, nil
 }
 
-func collectTopUsers(syncDir string, limit int) []UserUsage {
-	var out []UserUsage
-	for _, svc := range []string{"exchange", "onedrive"} {
-		base := filepath.Join(syncDir, svc)
-		entries, err := os.ReadDir(base)
-		if err != nil {
-			continue
-		}
-		for _, ent := range entries {
-			if !ent.IsDir() {
-				continue
-			}
-			name := ent.Name()
-			if name == "" || strings.HasPrefix(name, ".") {
-				continue
-			}
-			sz, _ := DirSize(filepath.Join(base, name))
-			if sz == 0 {
-				continue
-			}
-			out = append(out, UserUsage{
-				User:    name,
-				Service: svc,
-				Bytes:   sz,
-				Human:   FormatBytes(sz),
-				GB:      round2(BytesToGB(sz)),
-			})
-		}
+func sumMap(m map[string]int64) int64 {
+	var n int64
+	for _, v := range m {
+		n += v
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Bytes > out[j].Bytes })
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
-	}
-	return out
+	return n
 }
 
 func round2(v float64) float64 {

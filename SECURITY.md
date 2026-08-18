@@ -27,9 +27,9 @@ Never commit or paste into issues/PRs:
 
 - `.env` files or real environment values
 - Azure / Entra client secrets, certificates, or private keys
-- `MASTER_KEY`, admin passwords, Kopia repository passwords
+- `MASTER_KEY`, admin passwords, tenant store passwords
 - SMTP credentials or webhook URLs containing tokens
-- Production databases, Kopia repos, or backup staging data
+- Production databases, tenant stores, or backup staging data
 - Customer tenant IDs paired with live credentials
 
 Use placeholders such as `<YOUR_CLIENT_SECRET>` in docs and `.env.example` only.
@@ -38,7 +38,7 @@ Use placeholders such as `<YOUR_CLIENT_SECRET>` in docs and `.env.example` only.
 
 - Store `MASTER_KEY` and `ADMIN_PASSWORD` only in environment variables or a secrets manager
 - Admin passwords are stored with bcrypt; API tokens are hashed (SHA-256) and used only as Bearer credentials
-- Restrict filesystem permissions on `DATABASE_PATH` and `KOPIA_ROOT`
+- Restrict filesystem permissions on `DATABASE_PATH` and `STORE_ROOT`
 - Keep Azure app registrations with least-privilege Graph permissions
 - Rotate client secrets before expiry (the app notifies on upcoming expiry)
-- Treat Kopia repository passwords as disaster-recovery secrets; store offline copies securely
+- Treat tenant store passwords as disaster-recovery secrets; store offline copies securely

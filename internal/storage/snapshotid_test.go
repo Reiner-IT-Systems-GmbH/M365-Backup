@@ -33,7 +33,7 @@ func TestValidateSnapshotID(t *testing.T) {
 }
 
 func TestGuardPath(t *testing.T) {
-	ok, err := GuardPath("/data/kopia/t/sync/exchange/Inbox/a.eml")
+	ok, err := GuardPath("/data/store/t/sync/exchange/Inbox/a.eml")
 	if err != nil || ok == "" {
 		t.Fatalf("ok path: %v", err)
 	}

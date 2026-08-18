@@ -69,7 +69,7 @@ func (m *Manager) EnsureDefaultSchedules(ctx context.Context, tenantID string) (
 type Manager struct {
 	DB        *db.DB
 	Cipher    *crypto.Cipher
-	KopiaRoot string
+	StoreRoot string
 	Store     *storage.Engine
 	BaseURL   string
 }
@@ -87,11 +87,11 @@ func (m *Manager) Create(ctx context.Context, in CreateInput) (*db.Tenant, error
 	if err != nil {
 		return nil, err
 	}
-	kopiaPass, err := crypto.RandomPassword(32)
+	storePass, err := crypto.RandomPassword(32)
 	if err != nil {
 		return nil, err
 	}
-	encKopia, err := m.Cipher.Encrypt(kopiaPass)
+	encStore, err := m.Cipher.Encrypt(storePass)
 	if err != nil {
 		return nil, err
 	}
@@ -102,20 +102,20 @@ func (m *Manager) Create(ctx context.Context, in CreateInput) (*db.Tenant, error
 		ClientID:      in.ClientID,
 		ClientSecret:  encSecret,
 		SecretExpires: in.SecretExpires,
-		KopiaPassword: encKopia,
+		StorePassword: encStore,
 		Status:        "setup",
 	}
 	// provisional ID for path; CreateTenant assigns UUID before insert if empty —
-	// we need ID first for repo path
+	// we need ID first for store path
 	if err := m.DB.CreateTenant(ctx, t); err != nil {
 		return nil, err
 	}
-	t.KopiaRepoPath = filepath.Join(m.KopiaRoot, t.ID)
-	if err := os.MkdirAll(t.KopiaRepoPath, 0o700); err != nil {
+	t.StorePath = filepath.Join(m.StoreRoot, t.ID)
+	if err := os.MkdirAll(t.StorePath, 0o700); err != nil {
 		return nil, err
 	}
-	if err := m.Store.CreateRepo(ctx, t.KopiaRepoPath, kopiaPass); err != nil {
-		return nil, fmt.Errorf("create kopia repo: %w", err)
+	if err := m.Store.CreateRepo(ctx, t.StorePath, storePass); err != nil {
+		return nil, fmt.Errorf("create store: %w", err)
 	}
 	if err := m.DB.UpdateTenant(ctx, t); err != nil {
 		return nil, err
@@ -134,16 +134,16 @@ func (m *Manager) Create(ctx context.Context, in CreateInput) (*db.Tenant, error
 	return t, nil
 }
 
-func (m *Manager) DecryptSecrets(t *db.Tenant) (clientSecret, kopiaPassword string, err error) {
+func (m *Manager) DecryptSecrets(t *db.Tenant) (clientSecret, storePassword string, err error) {
 	clientSecret, err = m.Cipher.Decrypt(t.ClientSecret)
 	if err != nil {
 		return "", "", err
 	}
-	kopiaPassword, err = m.Cipher.Decrypt(t.KopiaPassword)
+	storePassword, err = m.Cipher.Decrypt(t.StorePassword)
 	if err != nil {
 		return "", "", err
 	}
-	return clientSecret, kopiaPassword, nil
+	return clientSecret, storePassword, nil
 }
 
 func (m *Manager) ConsentURL(t *db.Tenant, state string) string {
@@ -166,4 +166,57 @@ func (m *Manager) Activate(ctx context.Context, tenantID string) error {
 
 func (m *Manager) Delete(ctx context.Context, id string) error {
 	return m.DB.DeleteTenant(ctx, id)
+}
+
+// BindStorePath forces t.StorePath to {StoreRoot}/{tenantID} (the Docker volume).
+// Tenants created with an old host path otherwise write into the container overlay on /.
+func (m *Manager) BindStorePath(ctx context.Context, t *db.Tenant) (previous string, err error) {
+	if m == nil || t == nil || t.ID == "" {
+		return "", nil
+	}
+	if m.StoreRoot == "" {
+		return t.StorePath, nil
+	}
+	want := filepath.Clean(filepath.Join(m.StoreRoot, t.ID))
+	if _, err := storage.GuardPath(want); err != nil {
+		return t.StorePath, err
+	}
+	previous = t.StorePath
+	if filepath.Clean(previous) == want {
+		return previous, os.MkdirAll(want, 0o700)
+	}
+	if err := os.MkdirAll(want, 0o700); err != nil {
+		return previous, err
+	}
+	t.StorePath = want
+	if m.DB != nil {
+		if err := m.DB.UpdateTenant(ctx, t); err != nil {
+			t.StorePath = previous
+			return previous, err
+		}
+	}
+	return previous, nil
+}
+
+// RebaseAllStorePaths rewrites every tenant onto StoreRoot. Returns how many rows changed.
+func (m *Manager) RebaseAllStorePaths(ctx context.Context) (int, error) {
+	if m == nil || m.DB == nil || m.StoreRoot == "" {
+		return 0, nil
+	}
+	list, err := m.DB.ListTenants(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range list {
+		t := &list[i]
+		old := t.StorePath
+		if _, err := m.BindStorePath(ctx, t); err != nil {
+			return n, fmt.Errorf("tenant %s: %w", t.ID, err)
+		}
+		if filepath.Clean(old) != filepath.Clean(t.StorePath) {
+			n++
+		}
+	}
+	return n, nil
 }

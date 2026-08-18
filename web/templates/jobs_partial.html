@@ -43,11 +43,11 @@
         {{end}}
       </div>
       <div class="job-card-actions">
-        {{if .KopiaSnapshot}}
-          {{if eq .Service "pst"}}
-        <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}#pst-exports" title="{{.KopiaSnapshot}}">{{$.L.T "jobs.export"}}</a>
-          {{else}}
-        <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}/browser?service={{.Service}}&amp;version={{.KopiaSnapshot}}" title="{{.KopiaSnapshot}}">{{$.L.T "jobs.browse"}}</a>
+        {{if .SnapshotID}}
+        {{if eq .Service "pst"}}
+        <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}#pst-exports" title="{{.SnapshotID}}">{{$.L.T "jobs.export"}}</a>
+        {{else}}
+        <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}/browser?service={{.Service}}&amp;version={{.SnapshotID}}" title="{{.SnapshotID}}">{{$.L.T "jobs.browse"}}</a>
           {{end}}
         {{end}}
         <a class="btn secondary btn-sm" href="/tenants/{{$.TenantID}}/jobs/{{.ID}}">{{$.L.T "jobs.log"}}</a>

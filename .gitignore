@@ -17,6 +17,7 @@ service-account*.json
 *.db-wal
 *.db-shm
 kopia/
+store/
 
 # Build artifacts
 /bin/

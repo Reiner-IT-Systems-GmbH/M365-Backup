@@ -8,18 +8,18 @@ Jeder Dienst implementiert `ServiceBackup`:
 
 ```text
 Name() string
-Run(ctx, graphClient, tenant, job, stageDir, tokens) → Result
+Run(ctx, graphClient, tenant, job, stageDir, tokens, catalog) → Result
 ```
 
 Registriert in `main`:
 
 | Service | Sync-Modell | Snapshot-Quelle |
 |---------|-------------|-----------------|
-| **Exchange** | Graph-Delta → Live-Sync `sync/exchange/` | Live-Baum (`SnapshotDir`) |
-| **OneDrive** | Drive-Delta → `sync/onedrive/` | Live-Baum |
-| **Teams** | Full-Pull → Staging | Staging |
-| **SharePoint** | Root-Children → Staging | Staging |
-| **PST** | Liest Exchange-Live-Sync → `exports/pst/` | **kein** Kopia (`SkipSnapshot`) |
+| **Exchange** | Graph-Delta → Katalog + Blobs | `CommitSnapshot` |
+| **OneDrive** | Drive-Delta → Katalog + Blobs | `CommitSnapshot` |
+| **Teams** | Full-Pull + Reconcile | `CommitSnapshot` |
+| **SharePoint** | Root-Children + Reconcile | `CommitSnapshot` |
+| **PST** | Liest Exchange-Katalog → `exports/pst/` | **kein** Snapshot (`SkipSnapshot`) |
 
 Neue Dienste = neue Implementierung + Registry-Eintrag. Der Runner bleibt unverändert.
 
@@ -27,8 +27,7 @@ Neue Dienste = neue Implementierung + Registry-Eintrag. Der Runner bleibt unver�
 
 | Feld | Bedeutung |
 |------|-----------|
-| `SnapshotDir` | Wenn gesetzt: Snapshot **dieses** Pfads statt `stageDir` (Live-Sync) |
-| `SkipSnapshot` | Kein Kopia-Lauf (PST) |
+| `SkipSnapshot` | Kein Katalog-Snapshot (PST) |
 | `ExportPath` | Artefakt-Pfad für UI |
 | `Warnings` | Job endet als `warning` (nicht hart `error`) |
 | Logs | Persistiert (außer Level `skip`) |
@@ -45,10 +44,11 @@ Semaphore erwerben (MAX_CONCURRENT_JOBS)
   → status=running, Progress-Context
   → Secrets entschlüsseln
   → Graph-Client (außer PST)
+  → catalog.EnsureMigrated (sync/ → Generation 1, sonst empty → Full)
   → stageDir = {STAGING_ROOT}/{jobID}  (defer RemoveAll)
   → svc.Run(...)
   → SkipSnapshot? → PST-Retention, fertig
-  → Snapshot(SnapshotDir || stageDir)   ← inkrementell vs. vorheriges Manifest
+  → CommitSnapshot(service)   ← Generation + verschlüsseltes Manifest
   → ApplySmartRetention (+ GC)
   → success | warning | error + Notify
 ```
@@ -63,9 +63,9 @@ Siehe ausführlich [backup-logic.md](backup-logic.md). Kurz:
 1. **Enqueue-Check** (`CountActiveJobs(tenant, service)` + Full-Sync blockiert Inkremente) → `ErrTenantBusy`
 2. **DB Unique Index** — ein aktiver Job pro Tenant+Service
 3. **`enqueueMu`** — zwei Cron-Fires sehen nicht gleichzeitig „frei“
-4. **Service-Gate** + Datei-Lock `{repo}/.locks/{service}.lock` während des Laufs
+4. **Service-Gate** + Datei-Lock `{store}/.locks/{service}.lock` während des Laufs
 5. **Instance-Lock** — nur ein Prozess
-6. **Kopia Repo-Write-Lock** — parallele Dienste serialisieren Snapshots
+6. **Catalog Commit** — parallele Dienste serialisieren Generationen über Job-Gate + Datei-Lock
 7. **Global-Semaphore** über Tenants hinweg
 
 ## Orphans beim Start
@@ -78,6 +78,7 @@ Staging purgen.
 ## Scheduler
 
 - `robfig/cron` lädt enabled Schedules; nur `tenant.Status == active`
+- Leerer Tenant-Store: erstes Cron/UI-Inkrement wird `full` und zieht alle enabled Graph-Dienste nach
 - Busy → Log `scheduler skip (service busy)`, `last_run` wird trotzdem gesetzt (kein Cron-Storm)
 - Zusätzlich: Keycheck ~08:00, Usage ~`:15` jede Stunde, Startup-Usage nach ~45 s
 
@@ -85,15 +86,15 @@ Staging purgen.
 
 ### Exchange
 
-- Persistenter EML-Baum; Delta pro Ordner (`userID|folderID`)
+- Persistenter EML-Katalog; Delta pro Ordner (`userID|folderID`)
 - Shared Mailboxes: `accountEnabled=false` bewusst **nicht** ausgefiltert
-- MIME über `messages/{id}/$value`; bei `ErrorMimeContentConversionFailed` (u. a.) JSON+Attachments-Fallback → rekonstruiertes `.eml`; Removed → Datei löschen
+- MIME über `messages/{id}/$value`; bei `ErrorMimeContentConversionFailed` (u. a.) JSON+Attachments-Fallback → rekonstruiertes `.eml`; Removed → Katalog-`Delete`
 - Worker-Pool (`EXCHANGE_WORKERS`) für parallele Mailboxen
 - Erster Sync kann schwer sein → deshalb nach Consent zuerst nur Exchange
 
 ### OneDrive
 
-- Persistenter Dateibaum; Delta pro User
+- Persistenter Datei-Katalog; Delta pro User
 - Leere Drives: oft still übersprungen (kein Log-Spam)
 - Restore: ZIP oder Graph-Upload nach `M365Backup-Restore/`
 
@@ -112,10 +113,10 @@ Staging purgen.
 ### PST-Export
 
 - **Kein** binäres Outlook-`.pst` (kein OSS-Writer) — ZIP aus EML-Bäumen
-- Braucht vorhandenes Exchange-Live-Sync
+- Braucht vorhandene Exchange-Katalog-Items
 - Scope (Job-`params` JSON): **alle** Postfächer, **ein** Postfach oder **ein Ordner** eines Postfachs
-- Liegt unter `exports/pst/{run}/`, eigene Retention (`PSTKeepRuns`), kein Kopia-Snapshot
+- Liegt unter `exports/pst/{run}/`, eigene Retention (`PSTKeepRuns`), kein Katalog-Snapshot
 - Geplante PST-Läufe exportieren weiterhin alles; die UI unter „PST-Exporte“ steuert den manuellen Scope
 
 **Gedanke hinter SkipSnapshot:** PST ist ein abgeleitetes Artefakt aus schon gesicherten EMLs.
-Nochmal in Kopia zu speichern verdoppelt Speicher ohne Mehrwert.
+Nochmal als Katalog-Generation zu speichern verdoppelt Speicher ohne Mehrwert.

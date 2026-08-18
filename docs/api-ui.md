@@ -30,9 +30,9 @@ RBAC, 2FA, Audit-Log sind bewusst noch nicht da (Roadmap).
 | `POST …/backup` | Popup: `mode=full\|delta` + Dienste; Voll löscht Delta-Tokens |
 | `POST …/backup/{service}` | Einzel-Job (PST-Export); bei Busy Redirect `?job=busy` |
 | `…/jobs/{id}/live`, Cancel | HTMX Live-Fortschritt |
-| Browser / File | Live-Sync oder Snapshot-VFS |
+| Browser / File | Aktuell (Katalog) oder Generation |
 | Restore | ZIP oder Graph-Upload |
-| Recovery | Re-Auth → Kopia-Passwort reveal/download |
+| Recovery | Re-Auth → Store-Passwort reveal/download |
 | `/settings` | Notification-Kanäle |
 | `/openapi` | Spec / Swagger |
 
@@ -42,7 +42,7 @@ Spiegel der UI-Funktionen unter `/api/…` (Tenants, Jobs, Schedules, Restore, N
 Consent, Usage-Refresh).
 
 **Redaction:** `publicTenant` und Notification-Config strippen Secrets — API antwortet nie mit
-Client Secret oder Klartext-Kopia-Passwort.
+Client Secret oder Klartext-Store-Passwort.
 
 ## Consent-Callback
 

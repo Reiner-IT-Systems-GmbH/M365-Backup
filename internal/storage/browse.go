@@ -1,10 +1,10 @@
 package storage
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -18,35 +18,6 @@ type BrowseEntry struct {
 	From       string    `json:"from,omitempty"`
 	To         string    `json:"to,omitempty"`
 	ReceivedAt time.Time `json:"received_at,omitempty"` // from EML Date header
-}
-
-// EnsureExtracted decrypts the snapshot into cacheDir/<snapshotID>/ once and returns that path.
-// Prefer ListBrowseSnapshot / WriteSnapshotFile for interactive browse (no full materialization).
-func (e *Engine) EnsureExtracted(ctx context.Context, repoPath, password, snapshotID, cacheRoot string) (string, error) {
-	if err := ValidateSnapshotID(snapshotID); err != nil {
-		return "", err
-	}
-	browseRoot := filepath.Join(cacheRoot, "browse")
-	if err := os.MkdirAll(browseRoot, 0o700); err != nil {
-		return "", err
-	}
-	dest, err := EnsureSubpath(browseRoot, snapshotID)
-	if err != nil {
-		return "", err
-	}
-	marker := filepath.Join(dest, ".extracted")
-	if _, err := os.Stat(marker); err == nil {
-		return dest, nil
-	}
-	_ = os.RemoveAll(dest)
-	if err := e.Restore(ctx, repoPath, password, snapshotID, dest); err != nil {
-		_ = os.RemoveAll(dest)
-		return "", err
-	}
-	if err := os.WriteFile(marker, []byte("ok"), 0o600); err != nil {
-		return "", err
-	}
-	return dest, nil
 }
 
 // ListBrowseDir lists one directory level under an extracted snapshot or live sync tree.
@@ -98,11 +69,11 @@ func ListBrowseDir(extractRoot, relPath string) ([]BrowseEntry, error) {
 			IsDir: false,
 			Size:  info.Size(),
 		}
-		enrichBrowseEntryFromName(name, &be)
+		EnrichBrowseEntryFromName(name, &be)
 		EnrichEMLEntry(abs, name, &be)
 		out = append(out, be)
 	}
-	sortBrowseEntries(out)
+	SortBrowseEntries(out)
 	return out, nil
 }
 
@@ -157,7 +128,7 @@ func SearchBrowse(extractRoot, query string, limit int) ([]BrowseEntry, error) {
 				IsDir: false,
 				Size:  info.Size(),
 			}
-			enrichBrowseEntryFromName(name, &be)
+			EnrichBrowseEntryFromName(name, &be)
 			if be.Subject == "" {
 				EnrichEMLEntry(path, name, &be)
 			} else {
@@ -177,7 +148,7 @@ func SearchBrowse(extractRoot, query string, limit int) ([]BrowseEntry, error) {
 	if err != nil && err.Error() != "search limit reached" {
 		return out, err
 	}
-	sortBrowseEntries(out)
+	SortBrowseEntries(out)
 	return out, nil
 }
 
@@ -263,4 +234,45 @@ func dirIsVacant(root string) bool {
 		return false
 	}
 	return true
+}
+
+func normalizeBrowseRel(relPath string) string {
+	relPath = filepath.Clean("/" + relPath)
+	relPath = strings.TrimPrefix(relPath, "/")
+	if relPath == "." {
+		return ""
+	}
+	return filepath.ToSlash(relPath)
+}
+
+// EnrichBrowseEntryFromName fills Subject/Name from "subject__shortid.eml" filenames.
+func EnrichBrowseEntryFromName(fileName string, be *BrowseEntry) {
+	if be.IsDir || !strings.HasSuffix(strings.ToLower(fileName), ".eml") {
+		return
+	}
+	if subj, ok := SubjectFromEMLFilename(fileName); ok {
+		be.Subject = subj
+		be.Name = subj + ".eml"
+		return
+	}
+	be.Name = fileName
+}
+
+// SortBrowseEntries puts directories first, then newest mail, then name.
+func SortBrowseEntries(out []BrowseEntry) {
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].IsDir != out[j].IsDir {
+			return out[i].IsDir
+		}
+		zi, zj := out[i].ReceivedAt.IsZero(), out[j].ReceivedAt.IsZero()
+		if !zi || !zj {
+			if zi != zj {
+				return !zi
+			}
+			if !out[i].ReceivedAt.Equal(out[j].ReceivedAt) {
+				return out[i].ReceivedAt.After(out[j].ReceivedAt)
+			}
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
 }

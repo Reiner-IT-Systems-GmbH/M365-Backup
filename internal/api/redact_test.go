@@ -9,9 +9,9 @@ import (
 
 func TestPublicTenantOmitsSecrets(t *testing.T) {
 	got := publicTenant(db.Tenant{
-		Name: "t", ClientSecret: "enc-secret", KopiaPassword: "enc-kopia",
+		Name: "t", ClientSecret: "enc-secret", StorePassword: "enc-store",
 	})
-	if got.ClientSecret != "" || got.KopiaPassword != "" {
+	if got.ClientSecret != "" || got.StorePassword != "" {
 		t.Fatalf("secrets not redacted: %+v", got)
 	}
 	if got.Name != "t" {

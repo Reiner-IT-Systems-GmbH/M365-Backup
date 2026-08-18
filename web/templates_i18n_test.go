@@ -34,10 +34,10 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	}
 	type tenant struct{ ID, Name, AzureTenantID, Status string }
 	type job struct {
-		ID, Status, Service, ProgressMessage, ErrorMessage, KopiaSnapshot string
-		ProgressPct, ItemsNew, ItemsTotal                                 int
-		BytesTransferred                                                    int64
-		CreatedAt                                                           time.Time
+		ID, Status, Service, ProgressMessage, ErrorMessage, SnapshotID string
+		ProgressPct, ItemsNew, ItemsTotal                              int
+		BytesTransferred                                               int64
+		CreatedAt                                                      time.Time
 	}
 	for _, lang := range []string{"de", "en"} {
 		for _, name := range pages {

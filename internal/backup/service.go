@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
 )
@@ -20,8 +21,7 @@ type Result struct {
 	SkippedUsers     int
 	Warnings         []string
 	Logs             []LogLine
-	SnapshotDir      string // if set, runner snapshots this path instead of stageDir
-	SkipSnapshot     bool   // if true, runner skips encrypted snapshot (e.g. PST export)
+	SkipSnapshot     bool   // if true, runner skips catalog snapshot (e.g. PST export)
 	ExportPath       string // artifact path for export jobs (shown in UI)
 	progress         *Progress
 	livePersisted    bool
@@ -84,7 +84,7 @@ func (r *Result) snapshot() (itemsNew, itemsTotal, skipped int, bytes int64) {
 // ServiceBackup is implemented by Exchange, OneDrive, Teams, SharePoint.
 type ServiceBackup interface {
 	Name() string
-	Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore) (Result, error)
+	Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore, cat *catalog.Store) (Result, error)
 }
 
 type TokenStore interface {

@@ -28,7 +28,7 @@ func DisplayNameFor(absPath, fileName string) string {
 	if !strings.HasSuffix(lower, ".eml") {
 		return fileName
 	}
-	if subj, ok := subjectFromEMLFilename(fileName); ok {
+	if subj, ok := SubjectFromEMLFilename(fileName); ok {
 		return subj + ".eml"
 	}
 	meta := PeekEMLMeta(absPath)
@@ -38,7 +38,7 @@ func DisplayNameFor(absPath, fileName string) string {
 	return fileName
 }
 
-func subjectFromEMLFilename(name string) (string, bool) {
+func SubjectFromEMLFilename(name string) (string, bool) {
 	base := strings.TrimSuffix(name, filepath.Ext(name))
 	i := strings.LastIndex(base, "__")
 	if i <= 0 || i+2 >= len(base) {
@@ -245,7 +245,7 @@ func EnrichEMLEntryReader(r io.Reader, fileName string, e *BrowseEntry) {
 
 func applyEMLMeta(meta EMLMeta, fileName string, e *BrowseEntry) {
 	if meta.Subject == "" {
-		if subj, ok := subjectFromEMLFilename(fileName); ok {
+		if subj, ok := SubjectFromEMLFilename(fileName); ok {
 			meta.Subject = subj
 		}
 	}
@@ -276,7 +276,7 @@ func EMLMatchesQuery(absPath, relSlash, name, queryLower string) bool {
 	if !strings.HasSuffix(strings.ToLower(name), ".eml") {
 		return false
 	}
-	if subj, ok := subjectFromEMLFilename(name); ok && strings.Contains(strings.ToLower(subj), queryLower) {
+	if subj, ok := SubjectFromEMLFilename(name); ok && strings.Contains(strings.ToLower(subj), queryLower) {
 		return true
 	}
 	meta := PeekEMLMeta(absPath)

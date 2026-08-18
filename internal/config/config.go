@@ -18,16 +18,13 @@ type Config struct {
 	DBDriver          db.Driver
 	DatabasePath      string
 	MySQLDSN          string
-	KopiaRoot         string
+	StoreRoot         string
 	StagingRoot       string
 	MasterKey         string
 	AdminUser         string
 	AdminPassword     string
 	MaxConcurrentJobs int
 	ExchangeWorkers   int
-	// KeepLiveSync leaves Exchange/OneDrive working trees on disk after a snapshot.
-	// Default false: only Kopia snapshots persist; the tree is restored for the next run.
-	KeepLiveSync bool
 	// DisplayTZ is the IANA zone for UI timestamps (storage stays UTC).
 	DisplayTZ    string
 	DisplayLoc   *time.Location
@@ -47,14 +44,13 @@ func Load() (*Config, error) {
 		DBDriver:          driver,
 		DatabasePath:      getenv("DATABASE_PATH", "./data/m365backup.db"),
 		MySQLDSN:          os.Getenv("MYSQL_DSN"),
-		KopiaRoot:         getenv("KOPIA_ROOT", "./data/kopia"),
+		StoreRoot:         getenvFirst([]string{"STORE_ROOT", "KOPIA_ROOT"}, "./data/store"),
 		StagingRoot:       getenv("STAGING_ROOT", "./data/staging"),
 		MasterKey:         os.Getenv("MASTER_KEY"),
 		AdminUser:         getenv("ADMIN_USER", "m365adminuser"),
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		MaxConcurrentJobs: getenvInt("MAX_CONCURRENT_JOBS", 2),
 		ExchangeWorkers:   getenvInt("EXCHANGE_WORKERS", 6),
-		KeepLiveSync:      getenvBool("KEEP_LIVE_SYNC", false),
 		DisplayTZ:         displayTZName(),
 		SMTPHost:          os.Getenv("SMTP_HOST"),
 		SMTPPort:          getenvInt("SMTP_PORT", 587),
@@ -155,6 +151,16 @@ func getenv(k, def string) string {
 	return def
 }
 
+// getenvFirst returns the first non-empty env var among keys (deprecated aliases last).
+func getenvFirst(keys []string, def string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return def
+}
+
 // displayTZName: DISPLAY_TZ, else TZ, else Europe/Berlin (German UI default).
 func displayTZName() string {
 	if v := os.Getenv("DISPLAY_TZ"); v != "" {
@@ -176,21 +182,6 @@ func (c *Config) FormatTime(t time.Time, layout string) string {
 		loc = time.UTC
 	}
 	return t.In(loc).Format(layout)
-}
-
-func getenvBool(k string, def bool) bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv(k)))
-	if v == "" {
-		return def
-	}
-	switch v {
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return def
-	}
 }
 
 func getenvInt(k string, def int) int {

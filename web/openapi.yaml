@@ -502,8 +502,8 @@ components:
     Tenant:
       type: object
       description: >
-        Go default JSON field names (PascalCase). ClientSecret and KopiaPassword
-        are omitted (empty) in API responses.
+        Go default JSON field names (PascalCase). ClientSecret and StorePassword
+        (store password) are omitted (empty) in API responses.
       properties:
         ID:
           type: string
@@ -520,11 +520,12 @@ components:
         SecretExpires:
           type: string
           format: date-time
-        KopiaPassword:
+        StorePassword:
           type: string
-          description: Omitted in responses (never returned)
-        KopiaRepoPath:
+          description: Store password; omitted in responses (never returned)
+        StorePath:
           type: string
+          description: Tenant store root (blobs/manifests/exports)
         Status:
           type: string
           enum: [setup, active, error, disabled]
@@ -581,7 +582,7 @@ components:
           format: int64
         ErrorMessage:
           type: string
-        KopiaSnapshot:
+        SnapshotID:
           type: string
         ProgressPct:
           type: integer

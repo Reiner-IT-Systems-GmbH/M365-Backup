@@ -7,9 +7,9 @@ Package: `internal/tenant`.
 ```text
 Create (UI)
   │  Client Secret encrypten
-  │  Kopia-Passwort generieren + encrypten
+  │  Store-Passwort generieren + encrypten
   │  DB-Row status=setup
-  │  Repo unter {KOPIA_ROOT}/{id}/ anlegen
+  │  Store unter {STORE_ROOT}/{id}/ anlegen
   │  Default-Schedules einfügen
   │  Recovery-Passwort einmal zeigen
   ▼
@@ -17,7 +17,7 @@ Admin Consent (Entra)
   │  ConsentURL mit HMAC-State (TTL 1h)
   │  Callback /api/consent/callback
   │  Activate → status=active
-  │  Nur Exchange einmal enqueuen (full)
+  │  Exchange full enqueuen; leerer Store → Full-Sync aller enabled Dienste
   ▼
 Betrieb
   │  Cron für alle enabled Schedules
@@ -25,13 +25,13 @@ Betrieb
   │  Usage-Scan stündlich
   ▼
 Delete (optional)
-     Nur DB-Row — On-Disk-Repo bleibt (Operator räumt auf)
+     Nur DB-Row — On-Disk-Store bleibt (Operator räumt auf)
 ```
 
 ## Create — was und warum
 
-1. **Eigenes Kopia-Passwort pro Tenant** — Isolation: ein geleakter Tenant-Key öffnet nicht alle Repos.
-2. **Repo sofort anlegen** — Consent kann dauern; Speicherpfad und Offline-Recovery stehen früh fest.
+1. **Eigenes Store-Passwort pro Tenant** — Isolation: ein geleakter Tenant-Key öffnet nicht alle Stores.
+2. **Store sofort anlegen** — Consent kann dauern; Speicherpfad und Offline-Recovery stehen früh fest.
 3. **Status `setup`** — kein Backup bevor Admin Consent durch ist (sonst Graph-Fehler-Spam).
 4. **Default-Schedules** — Zero-Config für neue Tenants; gestaffelte Crons (siehe backup-logic).
 
@@ -62,7 +62,7 @@ Täglich ~08:00. Schwellen: abgelaufen / ≤7 Tage / ≤30 Tage → Notification
 
 ## Delete
 
-Nur `DeleteTenant` in der DB. Das Repo auf Disk bleibt liegen.
+Nur `DeleteTenant` in der DB. Der Store auf Disk bleibt liegen.
 
 **Gedanke:** Versehentliches UI-Löschen soll keine Kundendaten vernichten. Aufräumen ist
 Operator-Aufgabe (Volume / `rm` nach Bestätigung).

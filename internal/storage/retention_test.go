@@ -1,9 +1,6 @@
 package storage
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -42,71 +39,3 @@ func TestSanitizeExportName(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
-
-func TestSmartRetentionWithKopia(t *testing.T) {
-	dir := t.TempDir()
-	repoPath := filepath.Join(dir, "tenant")
-	eng := NewEngine()
-	pass := "test-repo-password-placeholder"
-	ctx := t.Context()
-	if err := eng.CreateRepo(ctx, repoPath, pass); err != nil {
-		t.Fatal(err)
-	}
-
-	// Four exchange snapshots with unique content (avoid identical roots).
-	for i := 0; i < 4; i++ {
-		src := filepath.Join(dir, fmt.Sprintf("src-%d", i))
-		if err := os.MkdirAll(src, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(src, "mail.eml"), []byte(fmt.Sprintf("message-%d", i)), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := eng.Snapshot(ctx, repoPath, pass, src, "exchange"); err != nil {
-			t.Fatal(err)
-		}
-		// Distinct timestamps for Stable ordering / Smart Recycle slots.
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	// One onedrive snap must not be pruned by exchange KeepMin.
-	od := filepath.Join(dir, "od")
-	_ = os.MkdirAll(od, 0o700)
-	_ = os.WriteFile(filepath.Join(od, "file.bin"), []byte("onedrive-data"), 0o600)
-	if _, err := eng.Snapshot(ctx, repoPath, pass, od, "onedrive"); err != nil {
-		t.Fatal(err)
-	}
-
-	policy := RetentionPolicy{
-		Enabled: false, // count-based KeepMin only
-		KeepMin: 2,
-	}
-	deleted, err := eng.ApplySmartRetention(ctx, repoPath, pass, policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if deleted != 2 {
-		t.Fatalf("deleted=%d want 2 (4 exchange → keep 2)", deleted)
-	}
-
-	snaps, err := eng.ListSnapshots(ctx, repoPath, pass)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var exchange, onedrive int
-	for _, sn := range snaps {
-		switch sn.Service {
-		case "exchange":
-			exchange++
-		case "onedrive":
-			onedrive++
-		}
-	}
-	if exchange != 2 {
-		t.Fatalf("exchange snaps=%d want 2; all=%+v", exchange, snaps)
-	}
-	if onedrive != 1 {
-		t.Fatalf("onedrive snaps=%d want 1 (per-service Smart Recycle)", onedrive)
-	}
-}
-

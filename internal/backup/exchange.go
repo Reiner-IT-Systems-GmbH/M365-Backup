@@ -15,14 +15,15 @@ import (
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
 
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
 	"github.com/rhw/m365backup/internal/storage"
 )
 
 // ExchangeBackup backs up Exchange Online mailboxes.
-// First run does a full Graph delta sync into a persistent tree under the tenant repo;
-// later runs only fetch changes (deltaLink). Multiple mailboxes run in parallel.
+// First run does a full Graph delta into the catalog; later runs only fetch changes
+// (deltaLink). Multiple mailboxes run in parallel.
 type ExchangeBackup struct {
 	Workers int // parallel mailboxes; default 6
 }
@@ -36,7 +37,7 @@ func (e ExchangeBackup) workers() int {
 	return e.Workers
 }
 
-func (e ExchangeBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore) (Result, error) {
+func (e ExchangeBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, stageDir string, tokens TokenStore, cat *catalog.Store) (Result, error) {
 	res := NewResult(ctx)
 	prog := ProgressFrom(ctx)
 	workers := e.workers()
@@ -47,13 +48,6 @@ func (e ExchangeBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Te
 	if err != nil {
 		return res, fmt.Errorf("list users: %w", err)
 	}
-
-	// Persistent sync tree (survives jobs) so incremental delta can update in place.
-	syncBase := filepath.Join(tenant.KopiaRepoPath, "sync", "exchange")
-	if err := os.MkdirAll(syncBase, 0o755); err != nil {
-		return res, err
-	}
-	res.SnapshotDir = syncBase
 
 	res.Info(fmt.Sprintf("listed %d directory objects; syncing with %d parallel mailbox workers (Graph delta = incremental after first run)",
 		len(userList), workers))
@@ -78,7 +72,7 @@ func (e ExchangeBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Te
 			if err := ctx.Err(); err != nil {
 				return
 			}
-			e.backupOneMailbox(ctx, gc, tenant, job, tokens, syncBase, it.idx, total, it.u, &res, prog, &okCount, &sharedOK, &doneN)
+			e.backupOneMailbox(ctx, gc, tenant, job, tokens, cat, it.idx, total, it.u, &res, prog, &okCount, &sharedOK, &doneN)
 		}
 	}
 	for i := 0; i < workers; i++ {
@@ -105,17 +99,13 @@ func (e ExchangeBackup) Run(ctx context.Context, gc *graph.Client, tenant *db.Te
 		itemsNew, okCount.Load(), sharedOK.Load(), skipped, itemsTotal, bytes)
 	res.Info(done)
 	prog.SyncJob(job, &res, 92, done)
-	meta := fmt.Sprintf("tenant=%s service=exchange users=%d mailboxes_ok=%d shared_ok=%d skipped=%d emails=%d workers=%d\n",
-		tenant.ID, len(userList), okCount.Load(), sharedOK.Load(), skipped, itemsNew, workers)
-	_ = os.WriteFile(filepath.Join(syncBase, "BACKUP_META.txt"), []byte(meta), 0o600)
-	// Keep stageDir marker so operators see where data lives
-	_ = os.WriteFile(filepath.Join(stageDir, "SNAPSHOT_ROOT.txt"), []byte(syncBase+"\n"), 0o600)
+	_ = stageDir
 	return res, nil
 }
 
 func (e ExchangeBackup) backupOneMailbox(
 	ctx context.Context, gc *graph.Client, tenant *db.Tenant, job *db.Job, tokens TokenStore,
-	syncBase string, idx, total int, u models.Userable, res *Result, prog *Progress,
+	cat *catalog.Store, idx, total int, u models.Userable, res *Result, prog *Progress,
 	okCount, sharedOK, doneN *atomic.Int64,
 ) {
 	uid := ptrStr(u.GetId())
@@ -177,7 +167,7 @@ func (e ExchangeBackup) backupOneMailbox(
 	res.Info(msg)
 	prog.SyncJob(job, res, pctFor(), msg)
 
-	userDir := filepath.Join(syncBase, sanitize(upn))
+	mailbox := sanitize(upn)
 	nMsgs := 0
 	for _, folder := range folders {
 		if err := ctx.Err(); err != nil {
@@ -191,9 +181,7 @@ func (e ExchangeBackup) backupOneMailbox(
 		if fname == "" {
 			fname = sanitize(fid)
 		}
-		folderDir := filepath.Join(userDir, fname)
-		// Do not pre-create empty folders — only when messages are written.
-		n, warn := backupFolderDelta(ctx, gc, tokens, tenant.ID, uid, upn, fid, fname, folderDir, userDir, res)
+		n, warn := backupFolderDelta(ctx, gc, tokens, tenant.ID, uid, upn, fid, fname, mailbox, cat, res)
 		nMsgs += n
 		for _, w := range warn {
 			res.Warn(w)
@@ -201,15 +189,13 @@ func (e ExchangeBackup) backupOneMailbox(
 	}
 
 	finished := doneN.Add(1)
-	if nMsgs == 0 && !dirHasFiles(userDir) {
-		_ = os.RemoveAll(userDir)
-		prog.SyncJob(job, res, pctFor(), fmt.Sprintf("[%d/%d] %s — no messages (no tree)", idx+1, total, upn))
-		_ = finished
-		return
-	}
 	okCount.Add(1)
 	if kind == "shared" {
 		sharedOK.Add(1)
+	}
+	if nMsgs == 0 {
+		prog.SyncJob(job, res, pctFor(), fmt.Sprintf("[%d/%d] %s — no message changes", idx+1, total, upn))
+		return
 	}
 	itemsNew, _, _, bytes := res.snapshot()
 	doneMsg := fmt.Sprintf("[%d/%d] %s [%s]: %d message change(s) this run · job total %d msgs / %d bytes (mailboxes done %d/%d)",
@@ -223,7 +209,7 @@ func deltaKey(userID, folderID string) string {
 }
 
 func backupFolderDelta(
-	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, folderID, folderName, folderDir, userDir string, res *Result,
+	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, folderID, folderName, mailbox string, cat *catalog.Store, res *Result,
 ) (int, []string) {
 	var warnings []string
 	tokenKey := deltaKey(userID, folderID)
@@ -278,10 +264,8 @@ func backupFolderDelta(
 				continue
 			}
 			subj := ptrStr(m.GetSubject())
-			path := filepath.Join(folderDir, emlFileName(subj, mid))
 			if isGraphRemoved(m) {
-				removeEMLVariants(folderDir, mid)
-				pruneEmptyDirs(folderDir, userDir)
+				_ = cat.Delete(ctx, "exchange", mid)
 				n++
 				res.addItems(1, 0)
 				continue
@@ -302,13 +286,12 @@ func backupFolderDelta(
 					warnings = append(warnings, fmt.Sprintf("%s mime %s: %v (fallback: %v)", upn, mid, err, fbErr))
 				}
 			}
-			// Drop legacy Graph-ID filenames when rewriting.
-			_ = os.Remove(filepath.Join(folderDir, sanitize(mid)+".eml"))
-			if err := ensureParent(path); err != nil {
-				warnings = append(warnings, err.Error())
-				continue
+			it := catalog.Item{
+				Service: "exchange", GraphItemID: mid, Mailbox: mailbox, ParentPath: folderName,
+				Name: emlFileName(subj, mid), ContentType: "message/rfc822",
+				Subject: storage.DecodeMIMEHeader(subj),
 			}
-			if err := os.WriteFile(path, body, 0o600); err != nil {
+			if err := cat.Put(ctx, it, body); err != nil {
 				warnings = append(warnings, err.Error())
 				continue
 			}
@@ -335,9 +318,6 @@ func backupFolderDelta(
 			})
 		}
 		break
-	}
-	if n == 0 {
-		pruneEmptyDirs(folderDir, userDir)
 	}
 	return n, warnings
 }
@@ -503,13 +483,4 @@ func emlFileName(subject, mid string) string {
 func msgShortID(mid string) string {
 	sum := sha256.Sum256([]byte(mid))
 	return hex.EncodeToString(sum[:])[:10]
-}
-
-func removeEMLVariants(folderDir, mid string) {
-	_ = os.Remove(filepath.Join(folderDir, sanitize(mid)+".eml"))
-	short := msgShortID(mid)
-	matches, _ := filepath.Glob(filepath.Join(folderDir, "*__"+short+".eml"))
-	for _, m := range matches {
-		_ = os.Remove(m)
-	}
 }

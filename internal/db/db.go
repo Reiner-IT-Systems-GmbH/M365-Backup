@@ -128,6 +128,8 @@ func (d *DB) migrate() error {
 		{6, dir + "/006_job_params.sql"},
 		{7, dir + "/007_users.sql"},
 		{8, dir + "/008_job_active_lock.sql"},
+		{9, dir + "/009_catalog.sql"},
+		{10, dir + "/010_store_rename.sql"},
 	}
 	for _, v := range versions {
 		var n int

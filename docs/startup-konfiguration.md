@@ -9,7 +9,7 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 2. config.Load()            fail-fast ohne MASTER_KEY / ADMIN_PASSWORD; legt ADMIN_USER an
 3. crypto.New(MasterKey)    AES-256-GCM Cipher
 4. db.Open(...)             SQLite oder MySQL + Migrations
-5. MkdirAll(KopiaRoot, StagingRoot)  Mode 0700
+5. MkdirAll(StoreRoot, StagingRoot)  Mode 0700
 6. storage.NewEngine()
 7. tenant.Manager{...}
 8. notification.New + SMTP aus Config
@@ -27,7 +27,7 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 |---------|---------|
 | Config/Crypto vor DB | Ohne gültigen Master-Key darf nichts starten — Secrets wären nutzlos |
 | Orphans **vor** Scheduler | Sonst könnte Cron neue Jobs starten, während alte „running“-Geister existieren |
-| Staging ≠ KopiaRoot | Job-Temp und persistente Kundendaten bleiben getrennt |
+| Staging ≠ StoreRoot | Job-Temp und persistente Kundendaten bleiben getrennt |
 | Text-`slog` | Leichter lesbar mit `docker compose logs -f` |
 
 ## Wichtige Env-Variablen
@@ -42,11 +42,10 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 | `DB_DRIVER` | `sqlite` | `sqlite` oder `mysql` |
 | `DATABASE_PATH` | `./data/m365backup.db` | SQLite-Datei |
 | `MYSQL_DSN` / `MYSQL_*` | — | MySQL (Compose/Prod) |
-| `KOPIA_ROOT` | `./data/kopia` | Wurzel aller Tenant-Repos |
+| `STORE_ROOT` | `./data/store` | Wurzel aller Tenant-Stores (Blobs/Manifeste/Exports) |
 | `STAGING_ROOT` | `./data/staging` | Ephemere Job-Verzeichnisse |
 | `MAX_CONCURRENT_JOBS` | `2` | Globales Semaphore (verschiedene Tenants); Full-Sync blockiert Inkremente desselben Tenants |
 | `EXCHANGE_WORKERS` | `6` (max 32) | Parallele Mailbox-/Drive-Worker **innerhalb** eines Jobs |
-| `KEEP_LIVE_SYNC` | `false` | `true` = Exchange/OneDrive-Baum dauerhaft auf Disk (~2×); sonst nur Snapshots zwischen den Jobs |
 | `DISPLAY_TZ` | `Europe/Berlin` (sonst `TZ`) | IANA-Zone für UI-Zeiten; DB bleibt UTC |
 | `SMTP_*` | — | Fallback-Notifier (siehe Benachrichtigungen) |
 
@@ -69,8 +68,8 @@ Jobs desselben Tenants gleichzeitig (siehe [backup-logic.md](backup-logic.md)).
 api ──► backup, tenant, storage, notification, db, config
 backup ──► tenant, storage, graph, db, notification
 tenant ──► db, crypto, storage
-storage ──► (Kopia library)
+storage ──► (catalog + blobstore)
 ```
 
 Die API kennt den Runner; der Runner kennt keine HTTP-Typen. Das hält Tests und CLI-Recovery
-sauber getrennt von der UI.
+(`m365-restore`) sauber getrennt von der UI.

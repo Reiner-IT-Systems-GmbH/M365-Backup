@@ -5,9 +5,9 @@ This product includes software developed at RHW and by community contributors.
 
 This product bundles or depends on third-party software:
 
-  - Kopia (https://github.com/kopia/kopia)
-    Copyright The Kopia Authors
-    Licensed under the Apache License, Version 2.0
+  - klauspost/compress (https://github.com/klauspost/compress)
+    Copyright Klaus Post and contributors
+    Licensed under a BSD-style license
 
   - Microsoft Graph SDK for Go (https://github.com/microsoftgraph/msgraph-sdk-go)
     Copyright Microsoft Corporation

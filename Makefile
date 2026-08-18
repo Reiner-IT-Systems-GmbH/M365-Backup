@@ -2,6 +2,7 @@
 
 build:
 	go build -o bin/m365backup ./cmd/server
+	go build -o bin/m365-restore ./cmd/restore
 
 test:
 	go test ./...

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
 	"github.com/rhw/m365backup/internal/storage"
@@ -93,7 +94,7 @@ type PSTExport struct{}
 
 func (PSTExport) Name() string { return "pst" }
 
-func (PSTExport) Run(ctx context.Context, _ *graph.Client, tenant *db.Tenant, job *db.Job, _ string, _ TokenStore) (Result, error) {
+func (PSTExport) Run(ctx context.Context, _ *graph.Client, tenant *db.Tenant, job *db.Job, _ string, _ TokenStore, cat *catalog.Store) (Result, error) {
 	res := NewResult(ctx)
 	res.SkipSnapshot = true
 
@@ -101,18 +102,23 @@ func (PSTExport) Run(ctx context.Context, _ *graph.Client, tenant *db.Tenant, jo
 	if err != nil {
 		return res, err
 	}
-
-	syncRoot, ok := storage.LiveSyncRoot(tenant.KopiaRepoPath, "exchange")
-	if !ok {
-		return res, fmt.Errorf("kein Exchange Live-Sync vorhanden — zuerst Exchange-Backup ausführen")
+	if cat == nil {
+		return res, fmt.Errorf("kein Katalog — zuerst Exchange-Backup ausführen")
+	}
+	has, err := cat.HasLiveItems(ctx, "exchange")
+	if err != nil {
+		return res, err
+	}
+	if !has {
+		return res, fmt.Errorf("kein Exchange-Katalog vorhanden — zuerst Exchange-Backup ausführen")
 	}
 
-	targets, err := resolvePSTTargets(syncRoot, params)
+	targets, err := resolvePSTTargets(ctx, cat, params)
 	if err != nil {
 		return res, err
 	}
 
-	runID, runDir, err := storage.EnsurePSTExportDir(tenant.KopiaRepoPath)
+	runID, runDir, err := storage.EnsurePSTExportDir(tenant.StorePath)
 	if err != nil {
 		return res, err
 	}
@@ -134,7 +140,7 @@ func (PSTExport) Run(ctx context.Context, _ *graph.Client, tenant *db.Tenant, jo
 			p.SyncJob(job, &res, pct, msg)
 		}
 
-		nFiles, nBytes, err := storage.ZipDirCounted(t.Src, zipPath)
+		nFiles, nBytes, err := cat.ZipItems(ctx, "exchange", t.Mailbox, t.Folder, zipPath)
 		if err != nil {
 			res.Warn(fmt.Sprintf("%s: %v", t.Label, err))
 			continue
@@ -177,50 +183,67 @@ func (PSTExport) Run(ctx context.Context, _ *graph.Client, tenant *db.Tenant, jo
 
 type pstTarget struct {
 	Label   string
-	Src     string
+	Mailbox string
+	Folder  string
 	ZipName string
 }
 
-func resolvePSTTargets(syncRoot string, params PSTExportParams) ([]pstTarget, error) {
+func resolvePSTTargets(ctx context.Context, cat *catalog.Store, params PSTExportParams) ([]pstTarget, error) {
 	switch params.Scope {
 	case "mailbox":
-		src, err := storage.ResolveExchangeMailbox(syncRoot, params.Mailbox)
+		boxes, err := cat.ListMailboxes(ctx, "exchange")
 		if err != nil {
 			return nil, err
+		}
+		if !containsStr(boxes, params.Mailbox) {
+			return nil, fmt.Errorf("Postfach nicht gefunden: %s", params.Mailbox)
 		}
 		return []pstTarget{{
 			Label:   params.Mailbox,
-			Src:     src,
+			Mailbox: params.Mailbox,
 			ZipName: storage.SanitizeExportName(params.Mailbox) + ".zip",
 		}}, nil
 	case "folder":
-		src, err := storage.ResolveExchangeFolder(syncRoot, params.Mailbox, params.Folder)
+		folders, err := cat.ListFolders(ctx, "exchange", params.Mailbox)
 		if err != nil {
 			return nil, err
 		}
+		if !containsStr(folders, params.Folder) {
+			return nil, fmt.Errorf("Ordner nicht gefunden: %s", params.Folder)
+		}
 		return []pstTarget{{
 			Label:   params.Mailbox + " / " + params.Folder,
-			Src:     src,
+			Mailbox: params.Mailbox,
+			Folder:  params.Folder,
 			ZipName: storage.SanitizeExportName(params.Mailbox) + "__" + storage.SanitizeExportName(params.Folder) + ".zip",
 		}}, nil
 	default:
-		mailboxes, err := storage.ListExchangeMailboxes(syncRoot)
+		mailboxes, err := cat.ListMailboxes(ctx, "exchange")
 		if err != nil {
 			return nil, err
 		}
 		if len(mailboxes) == 0 {
-			return nil, fmt.Errorf("Exchange Sync enthält keine Postfächer")
+			return nil, fmt.Errorf("Exchange-Katalog enthält keine Postfächer")
 		}
 		out := make([]pstTarget, 0, len(mailboxes))
 		for _, m := range mailboxes {
 			out = append(out, pstTarget{
 				Label:   m,
-				Src:     filepath.Join(syncRoot, m),
+				Mailbox: m,
 				ZipName: storage.SanitizeExportName(m) + ".zip",
 			})
 		}
 		return out, nil
 	}
+}
+
+func containsStr(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 func pstScopeLabel(p PSTExportParams) string {

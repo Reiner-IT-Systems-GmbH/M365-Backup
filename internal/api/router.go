@@ -22,6 +22,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/rhw/m365backup/internal/backup"
+	"github.com/rhw/m365backup/internal/catalog"
 	"github.com/rhw/m365backup/internal/config"
 	"github.com/rhw/m365backup/internal/db"
 	"github.com/rhw/m365backup/internal/graph"
@@ -292,7 +293,7 @@ func (s *Server) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	jobs, _ := s.DB.ListJobs(r.Context(), id, 30)
 	schedules, _ := s.DB.ListSchedules(r.Context(), id)
-	// Snapshots (Kopia) and PST exports are loaded lazily via HTMX when their tabs open,
+	// Snapshots and PST exports are loaded lazily via HTMX when their tabs open,
 	// so #jobs stays fast and does not wait on repo connect / disk walks.
 	usage, measuredAt := s.cachedUsage(r.Context(), id)
 	retention := storage.ParseRetentionJSON(t.RetentionJSON)
@@ -316,7 +317,7 @@ func (s *Server) handleRecoveryForm(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "tenant_recovery.html", map[string]any{
 		"Tenant":   t,
 		"IsNew":    r.URL.Query().Get("new") == "1",
-		"RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
+		"RepoPath": t.StorePath,
 	})
 }
 
@@ -337,20 +338,20 @@ func (s *Server) handleRecoveryExport(w http.ResponseWriter, r *http.Request) {
 	if p == nil || !s.Sessions.VerifyUserPassword(r.Context(), p.UserID, r.FormValue("admin_password")) {
 		s.Sessions.recordLoginAttempt(ip)
 		s.render(w, r, "tenant_recovery.html", map[string]any{
-			"Tenant": t, "RepoPath": storage.RepoDataDir(t.KopiaRepoPath),
+			"Tenant": t, "RepoPath": t.StorePath,
 			"Error": i18n.New(i18n.FromRequest(r)).T("recovery.bad_password"),
 		})
 		return
 	}
-	_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
+	_, storePass, err := s.Tenants.DecryptSecrets(t)
 	if err != nil {
 		http.Error(w, "decrypt failed", 500)
 		return
 	}
-	repoPath := storage.RepoDataDir(t.KopiaRepoPath)
+	repoPath := t.StorePath
 	action := r.FormValue("action")
 	if action == "download" {
-		body := formatRecoverySheet(t, repoPath, kopiaPass)
+		body := formatRecoverySheet(t, repoPath, storePass)
 		name := "m365backup-recovery-" + sanitizeFilePart(t.Name) + ".txt"
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
@@ -359,26 +360,25 @@ func (s *Server) handleRecoveryExport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "tenant_recovery.html", map[string]any{
 		"Tenant": t, "RepoPath": repoPath,
-		"KopiaPassword": kopiaPass,
+		"StorePassword": storePass,
 		"Revealed":      true,
 	})
 }
 
-func formatRecoverySheet(t *db.Tenant, repoPath, kopiaPass string) string {
+func formatRecoverySheet(t *db.Tenant, repoPath, storePass string) string {
 	var b strings.Builder
-	b.WriteString("M365 Backup — offline Kopia recovery\n")
-	b.WriteString("=====================================\n\n")
-	b.WriteString("KEEP THIS FILE OFFLINE. Anyone with repo path + this password can decrypt all snapshots.\n\n")
+	b.WriteString("M365 Backup — offline catalog + blob recovery\n")
+	b.WriteString("=============================================\n\n")
+	b.WriteString("KEEP THIS FILE OFFLINE. Anyone with store path + this password can decrypt blobs and manifests.\n\n")
 	b.WriteString("Tenant name:     " + t.Name + "\n")
 	b.WriteString("Tenant ID:       " + t.ID + "\n")
 	b.WriteString("Azure tenant:    " + t.AzureTenantID + "\n")
-	b.WriteString("Kopia repo path: " + repoPath + "\n")
-	b.WriteString("Repo password:   " + kopiaPass + "\n\n")
-	b.WriteString("Restore with upstream kopia CLI (no M365 Backup app / DB required):\n\n")
-	b.WriteString("  export KOPIA_PASSWORD='…password above…'\n")
-	b.WriteString("  kopia repository connect filesystem --path '" + repoPath + "' --readonly\n")
-	b.WriteString("  kopia snapshot list --all\n")
-	b.WriteString("  kopia snapshot restore <snapshot-id> /restore/target\n\n")
+	b.WriteString("Store path:      " + repoPath + "\n")
+	b.WriteString("Store password:  " + storePass + "\n\n")
+	b.WriteString("Restore with the bundled CLI (no app/DB required):\n\n")
+	b.WriteString("  m365-restore --root '" + repoPath + "' --password '…password above…' \\\n")
+	b.WriteString("    --service exchange --generation 1 --out /restore/target\n\n")
+	b.WriteString("Layout: blobs/{hh}/{sha256} (AES-256-GCM) and manifests/{service}/{generation}.json.zst\n")
 	b.WriteString("This is NOT the MASTER_KEY. MASTER_KEY only encrypts secrets in the app database.\n")
 	return b.String()
 }
@@ -440,10 +440,10 @@ func (s *Server) handlePSTExportsPartial(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "not found", 404)
 		return
 	}
-	pstExports, _ := storage.ListPSTExports(t.KopiaRepoPath)
+	pstExports, _ := storage.ListPSTExports(t.StorePath)
 	var mailboxes []string
-	if syncRoot, ok := storage.LiveSyncRoot(t.KopiaRepoPath, "exchange"); ok {
-		mailboxes, _ = storage.ListExchangeMailboxes(syncRoot)
+	if cat, err := s.catalogFor(t); err == nil {
+		mailboxes, _ = cat.ListMailboxes(r.Context(), "exchange")
 	}
 	s.render(w, r, "pst_exports_partial.html", map[string]any{
 		"Tenant": t, "TenantID": id, "PSTExports": pstExports, "Mailboxes": mailboxes,
@@ -459,8 +459,10 @@ func (s *Server) handlePSTFoldersPartial(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var folders []string
-	if syncRoot, ok := storage.LiveSyncRoot(t.KopiaRepoPath, "exchange"); ok && mailbox != "" {
-		folders, _ = storage.ListExchangeFolders(syncRoot, mailbox)
+	if mailbox != "" {
+		if cat, err := s.catalogFor(t); err == nil {
+			folders, _ = cat.ListFolders(r.Context(), "exchange", mailbox)
+		}
 	}
 	s.render(w, r, "pst_folders_partial.html", map[string]any{
 		"Folders": folders,
@@ -604,8 +606,8 @@ func (s *Server) annotateSnapshots(ctx context.Context, tenantID string, snaps [
 	jobs, _ := s.DB.ListJobs(ctx, tenantID, 200)
 	m := map[string]string{}
 	for _, j := range jobs {
-		if j.KopiaSnapshot != "" && j.Service != "" {
-			m[j.KopiaSnapshot] = j.Service
+		if j.SnapshotID != "" && j.Service != "" {
+			m[j.SnapshotID] = j.Service
 		}
 	}
 	storage.AnnotateServices(snaps, m)
@@ -616,12 +618,25 @@ func (s *Server) annotateSnapshots(ctx context.Context, tenantID string, snaps [
 	}
 }
 
-func (s *Server) listTenantSnapshots(ctx context.Context, t *db.Tenant) []storage.SnapshotInfo {
+func (s *Server) catalogFor(t *db.Tenant) (*catalog.Store, error) {
+	if s.Tenants != nil {
+		if _, err := s.Tenants.BindStorePath(context.Background(), t); err != nil {
+			return nil, err
+		}
+	}
 	_, pass, err := s.Tenants.DecryptSecrets(t)
+	if err != nil {
+		return nil, err
+	}
+	return catalog.Open(s.DB, t.ID, t.StorePath, pass)
+}
+
+func (s *Server) listTenantSnapshots(ctx context.Context, t *db.Tenant) []storage.SnapshotInfo {
+	cat, err := s.catalogFor(t)
 	if err != nil {
 		return nil
 	}
-	snaps, err := s.Store.ListSnapshotsCached(ctx, t.KopiaRepoPath, pass)
+	snaps, err := cat.SnapshotInfos(ctx, "")
 	if err != nil {
 		return nil
 	}
@@ -646,9 +661,17 @@ func (s *Server) measureAndStoreUsage(ctx context.Context, t *db.Tenant) *storag
 	}
 	snaps := s.listTenantSnapshots(ctx, t)
 	s.annotateSnapshots(ctx, t.ID, snaps)
-	u, err := s.Store.MeasureUsage(t.KopiaRepoPath, snaps)
+	live, top := map[string]int64{}, []storage.UserUsage{}
+	snapBytes, snapCount := map[string]int64{}, map[string]int{}
+	if cat, err := s.catalogFor(t); err == nil {
+		live, top, _ = cat.LiveLogicalUsage(ctx)
+		snapBytes, snapCount, _ = cat.SnapshotCounts(ctx)
+	}
+	u, err := s.Store.MeasureUsageEx(t.StorePath, snaps, storage.UsageExtras{
+		LiveByService: live, SnapByService: snapBytes, SnapCount: snapCount, TopUsers: top,
+	})
 	if err != nil || u == nil {
-		return &storage.UsageReport{TenantID: t.ID, RepoPath: t.KopiaRepoPath, TotalHuman: "0 B"}
+		return &storage.UsageReport{TenantID: t.ID, RepoPath: t.StorePath, TotalHuman: "0 B"}
 	}
 	u.TenantID = t.ID
 	_ = s.DB.UpsertTenantUsage(ctx, t.ID, u)
@@ -706,7 +729,9 @@ func (s *Server) handleBrowser(w http.ResponseWriter, r *http.Request) {
 	hasLive := false
 	if service != "" {
 		versions = storage.FilterByService(snaps, service)
-		_, hasLive = storage.LiveSyncRoot(t.KopiaRepoPath, service)
+		if cat, err := s.catalogFor(t); err == nil {
+			hasLive, _ = cat.HasLiveItems(r.Context(), service)
+		}
 	}
 
 	page := 1
@@ -726,37 +751,33 @@ func (s *Server) handleBrowser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if service != "" && version != "" {
+		cat, err := s.catalogFor(t)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 		var entries []storage.BrowseEntry
 		if version == "live" {
-			root, err := s.resolveBrowserRoot(r.Context(), t, service, version)
-			if err != nil {
-				http.Error(w, err.Error(), 400)
-				return
-			}
 			if q != "" {
-				entries, err = storage.SearchBrowse(root, q, 500)
+				entries, err = cat.SearchLive(r.Context(), service, q, 500)
 			} else {
-				entries, err = storage.ListBrowseDir(root, rel)
-			}
-			if err != nil {
-				http.Error(w, err.Error(), 400)
-				return
+				entries, err = cat.BrowseLive(r.Context(), service, rel)
 			}
 		} else {
-			_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
-			if err != nil {
-				http.Error(w, err.Error(), 400)
+			sn, gerr := cat.GetSnapshot(r.Context(), version)
+			if gerr != nil {
+				http.Error(w, gerr.Error(), 400)
 				return
 			}
 			if q != "" {
-				entries, err = s.Store.SearchBrowseSnapshot(r.Context(), t.KopiaRepoPath, kopiaPass, version, q, 500)
+				entries, err = cat.SearchGeneration(r.Context(), sn.Service, sn.Generation, q, 500)
 			} else {
-				entries, err = s.Store.ListBrowseSnapshot(r.Context(), t.KopiaRepoPath, kopiaPass, version, rel)
+				entries, err = cat.BrowseGeneration(r.Context(), sn.Service, sn.Generation, rel)
 			}
-			if err != nil {
-				http.Error(w, err.Error(), 400)
-				return
-			}
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
 		}
 		parent := ""
 		if rel != "" && rel != "." {
@@ -782,15 +803,6 @@ func (s *Server) handleBrowser(w http.ResponseWriter, r *http.Request) {
 			end = total
 		}
 		pageEntries := entries[start:end]
-		if service == "exchange" {
-			if version == "live" {
-				if root, err := s.resolveBrowserRoot(r.Context(), t, service, version); err == nil {
-					storage.EnrichBrowsePage(root, pageEntries)
-				}
-			} else if _, kopiaPass, err := s.Tenants.DecryptSecrets(t); err == nil {
-				_ = s.Store.EnrichSnapshotBrowsePage(r.Context(), t.KopiaRepoPath, kopiaPass, version, pageEntries)
-			}
-		}
 		data["Entries"] = pageEntries
 		data["Parent"] = parent
 		data["Page"] = page
@@ -815,49 +827,21 @@ func (s *Server) handleBrowserFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", 404)
 		return
 	}
-	if version == "live" {
-		root, err := s.resolveBrowserRoot(r.Context(), t, service, version)
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		abs, err := storage.OpenBrowseFile(root, rel)
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		name := storage.DisplayNameFor(abs, filepath.Base(abs))
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
-		s.serveGuardedFile(w, r, abs)
-		return
-	}
-	if err := storage.ValidateSnapshotID(version); err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
+	cat, err := s.catalogFor(t)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	if err := s.Store.ServeSnapshotFile(r.Context(), t.KopiaRepoPath, kopiaPass, version, rel, w); err != nil {
+	if version != "live" {
+		if err := storage.ValidateSnapshotID(version); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
+	if err := cat.ServeFile(r.Context(), service, version, rel, w); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-}
-
-func (s *Server) resolveBrowserRoot(ctx context.Context, t *db.Tenant, service, version string) (string, error) {
-	if version == "" {
-		return "", fmt.Errorf("version required")
-	}
-	if version == "live" {
-		root, ok := storage.LiveSyncRoot(t.KopiaRepoPath, service)
-		if !ok {
-			return "", fmt.Errorf("kein Live-Sync für %s", service)
-		}
-		return root, nil
-	}
-	return "", fmt.Errorf("snapshot browse uses Kopia virtual FS; use ListBrowseSnapshot")
 }
 
 var backupStartServices = map[string]bool{
@@ -1060,7 +1044,7 @@ func (s *Server) handlePSTExportDownload(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid path", 400)
 		return
 	}
-	root := storage.PSTExportRoot(t.KopiaRepoPath)
+	root := storage.PSTExportRoot(t.StorePath)
 	path, err := storage.EnsureSubpath(root, filepath.Join(runID, file))
 	if err != nil {
 		http.Error(w, "invalid path", 400)
@@ -1119,7 +1103,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", 404)
 		return
 	}
-	_, kopiaPass, err := s.Tenants.DecryptSecrets(t)
+	cat, err := s.catalogFor(t)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -1139,7 +1123,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 
 	if mode == "graph" && (service == "onedrive" || service == "sharepoint") {
 		dest := filepath.Join(work, "out")
-		if err := s.Store.Restore(r.Context(), t.KopiaRepoPath, kopiaPass, snapID, dest); err != nil {
+		if err := cat.Materialize(r.Context(), service, snapID, filepath.Join(dest, service)); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -1157,7 +1141,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	zipPath, err := s.Store.ExportZip(r.Context(), t.KopiaRepoPath, kopiaPass, snapID, work)
+	zipPath, err := cat.ExportZip(r.Context(), snapID, work)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

@@ -8,11 +8,11 @@ import (
 
 func TestSanitizeRejectsTraversal(t *testing.T) {
 	cases := map[string]string{
-		"..":      "_",
-		".":       "_",
-		"":        "_",
-		"a/b":     "a_b",
-		"normal":  "normal",
+		"..":       "_",
+		".":        "_",
+		"":         "_",
+		"a/b":      "a_b",
+		"normal":   "normal",
 		"foo..bar": "foo_bar",
 	}
 	for in, want := range cases {

@@ -35,16 +35,14 @@
     {{if .Revealed}}
     <div class="form-panel">
       <h2>{{.L.T "recovery.password"}}</h2>
-      <p><code class="recovery-secret" id="kopia-pass">{{.KopiaPassword}}</code>
+      <p><code class="recovery-secret" id="store-pass">{{.StorePassword}}</code>
         <button type="button" class="btn-sm" id="copy-pass"
                 data-copy="{{.L.T "action.copy"}}"
                 data-copied="{{.L.T "action.copied"}}"
                 data-error="{{.L.T "action.error"}}">{{.L.T "action.copy"}}</button>
       </p>
-      <pre class="recovery-cli">export KOPIA_PASSWORD='{{.KopiaPassword}}'
-kopia repository connect filesystem --path '{{.RepoPath}}' --readonly
-kopia snapshot list --all
-kopia snapshot restore [snapshot-id] /restore/target</pre>
+      <pre class="recovery-cli">m365-restore --root '{{.RepoPath}}' --password '{{.StorePassword}}' \
+  --service exchange --generation 1 --out /restore/target</pre>
       <p class="muted">{{.L.T "recovery.after_reveal"}}</p>
     </div>
     {{end}}
@@ -66,7 +64,7 @@ kopia snapshot restore [snapshot-id] /restore/target</pre>
   </main>
   <script>
     const btn = document.getElementById('copy-pass');
-    const el = document.getElementById('kopia-pass');
+    const el = document.getElementById('store-pass');
     if (btn && el) {
       btn.addEventListener('click', async () => {
         try {
