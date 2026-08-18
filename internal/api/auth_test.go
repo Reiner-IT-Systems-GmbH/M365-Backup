@@ -38,15 +38,30 @@ func TestBootstrapLoginAndBearer(t *testing.T) {
 	if p, ok := s.Valid(tok); !ok || p.Username != "m365adminuser" || p.Scope != scopeWrite {
 		t.Fatalf("session %+v ok=%v", p, ok)
 	}
-	p, ok := s.AuthenticateBearer(ctx, "test-password-ok")
-	if !ok || p.Via != "password" || p.Scope != scopeWrite {
-		t.Fatalf("password-as-token %+v ok=%v", p, ok)
+	if _, ok := s.AuthenticateBearer(ctx, "test-password-ok"); ok {
+		t.Fatal("admin password must not work as a bearer token")
 	}
-	if _, ok := s.Login(ctx, "", "test-password-ok"); !ok {
-		t.Fatal("password-only login (Usage-Sync / scripts) must still work")
+	if _, ok := s.Login(ctx, "", "test-password-ok"); ok {
+		t.Fatal("login requires username and password")
 	}
-	if _, ok := s.Login(ctx, "", "wrong"); ok {
-		t.Fatal("empty user + wrong password")
+	if _, ok := s.Login(ctx, "m365adminuser", ""); ok {
+		t.Fatal("empty password")
+	}
+	u, err := database.GetUserByUsername(ctx, "m365adminuser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InsertAPIToken(ctx, &db.APIToken{
+		UserID: u.ID, Name: "legacy-env", Kind: "env", Prefix: "password", Scope: scopeWrite,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureBootstrapAuth(ctx, database, "m365adminuser", "test-password-ok"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := database.ListAPITokens(ctx, u.ID)
+	if err != nil || len(list) != 0 {
+		t.Fatalf("env token leftover list=%d err=%v", len(list), err)
 	}
 }
 
@@ -86,18 +101,18 @@ func TestAPITokenScopes(t *testing.T) {
 }
 
 func TestReadLoginCredentials(t *testing.T) {
-	form := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("password=secret-pass"))
+	form := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=m365adminuser&password=secret-pass"))
 	form.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	u, p := readLoginCredentials(form)
-	if u != "" || p != "secret-pass" {
-		t.Fatalf("form password-only: user=%q pass=%q", u, p)
+	if u != "m365adminuser" || p != "secret-pass" {
+		t.Fatalf("form: user=%q pass=%q", u, p)
 	}
 
-	js := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"password":"json-pass"}`))
+	js := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"m365adminuser","password":"json-pass"}`))
 	js.Header.Set("Content-Type", "application/json")
 	u, p = readLoginCredentials(js)
-	if u != "" || p != "json-pass" {
-		t.Fatalf("json password-only: user=%q pass=%q", u, p)
+	if u != "m365adminuser" || p != "json-pass" {
+		t.Fatalf("json: user=%q pass=%q", u, p)
 	}
 }
 

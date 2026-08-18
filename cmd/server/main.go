@@ -82,6 +82,7 @@ func main() {
 		backup.PSTExport{},
 	)
 	runner := backup.NewRunner(database, tenants, reg, store, notifier, cfg.StagingRoot, cfg.MaxConcurrentJobs, log)
+	runner.KeepLiveSync = cfg.KeepLiveSync
 	runner.RecoverOrphans(context.Background())
 	usageScan := backup.NewUsageScanner(database, store, tenants, log)
 	sched := backup.NewScheduler(database, runner, log)

@@ -40,11 +40,15 @@ Graph (delta) ──► Live-Sync-Baum (sync/<service>/)
   exports/pst/       PST-/EML-ZIP-Exporte
 ```
 
-### Warum Live-Sync + Snapshots ≈ Gesamtgröße?
+### Warum nicht dauerhaft Live-Sync + Snapshots?
 
-- **Live-Sync** ist die aktuelle Arbeitskopie (Klartext-Dateien für schnelle Deltas).
-- **Snapshots** sind die Historie; unveränderte Dateien werden in Kopia nur einmal gespeichert.
-- Beide liegen **nebeneinander** auf der Platte → `Gesamt ≈ Sync + Snapshots` (plus Cache/Exports).
+Standard (`KEEP_LIVE_SYNC` aus): Zwischen den Jobs liegen nur **Kopia-Snapshots**.
+Vor Exchange/OneDrive (und PST) wird der letzte Snapshot in `sync/` geholt, Delta
+läuft wie bisher, nach erfolgreichem Snapshot wird `sync/{dienst}` gelöscht.
+
+- **Während** eines Jobs kann die Platte kurz ≈ Sync + Snapshots brauchen.
+- **Danach** bleibt vor allem `repo/` (plus Cache/Exports).
+- `KEEP_LIVE_SYNC=true` lässt den Baum liegen (schnellere stündliche Läufe, ~2× Platz).
 
 Die Statistik-Spalte **„Snaps (logisch)“** summiert die Inhaltsgröße je Snapshot-Manifest
 (`TotalFileSize`). Das ist **nicht** der Plattenverbrauch — der steht unter „Snapshots (Kopia, dedup)“.

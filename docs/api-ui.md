@@ -6,11 +6,11 @@ Package: `internal/api` + embedded `web/` (Templates, Static, OpenAPI).
 
 | Aspekt | Umsetzung | Gedanke |
 |--------|-----------|---------|
-| Login | User `ADMIN_USER` (Default `m365adminuser`) + `ADMIN_PASSWORD`; Skripte dürfen nur `password` senden | bcrypt; Passwort gilt auch als Write-Token |
+| Login | User `ADMIN_USER` (Default `m365adminuser`) + `ADMIN_PASSWORD` | bcrypt; Session-Cookie für die UI |
 | Session | Cookie 24 h, HttpOnly, Secure, SameSite=Lax | Login: Secure bei HTTPS; Logout/Lang: immer Secure+HttpOnly |
 | Hash | SHA-256, constant-time Compare | Kein Klartext in Session-Store |
 | Rate Limit | 10 Attempts / Minute / IP | Brute-Force dämpfen |
-| Öffentlich | `/login`, `/lang/{de|en}`, `/static/*`, Consent-Callback, `/healthz` | Rest hinter Session |
+| API | `/api/…` per `Authorization: Bearer <token>` (Settings) oder Session-Cookie | Tokens: `read` = GET, `write` = alle Methoden |
 
 RBAC, 2FA, Audit-Log sind bewusst noch nicht da (Roadmap).
 

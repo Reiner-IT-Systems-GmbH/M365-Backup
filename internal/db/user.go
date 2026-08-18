@@ -41,24 +41,6 @@ func (d *DB) GetUserByUsername(ctx context.Context, username string) (*User, err
 	return u, nil
 }
 
-func (d *DB) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := d.SQL.QueryContext(ctx, `
-		SELECT id, username, password_hash, created_at, updated_at FROM users ORDER BY username`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []User
-	for rows.Next() {
-		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt, &u.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, u)
-	}
-	return out, rows.Err()
-}
-
 func (d *DB) GetUser(ctx context.Context, id string) (*User, error) {
 	u := &User{}
 	err := d.SQL.QueryRowContext(ctx, `
@@ -108,7 +90,7 @@ func (d *DB) UpsertUser(ctx context.Context, username, passwordHash string) (*Us
 func (d *DB) ListAPITokens(ctx context.Context, userID string) ([]APIToken, error) {
 	rows, err := d.SQL.QueryContext(ctx, `
 		SELECT id, user_id, name, kind, token_hash, prefix, scope, created_at, last_used_at
-		FROM api_tokens WHERE user_id=? ORDER BY created_at DESC`, userID)
+		FROM api_tokens WHERE user_id=? AND kind='user' ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -153,31 +135,12 @@ func (d *DB) InsertAPIToken(ctx context.Context, t *APIToken) error {
 	return err
 }
 
-func (d *DB) UpsertEnvToken(ctx context.Context, userID, name, prefix, scope string) error {
-	existing, err := d.GetAPITokenByKind(ctx, userID, "env")
-	if err == nil {
-		_, err = d.SQL.ExecContext(ctx, `
-			UPDATE api_tokens SET name=?, prefix=?, scope=? WHERE id=?`,
-			name, prefix, scope, existing.ID)
-		return err
+func (d *DB) DeleteAPITokensByKind(ctx context.Context, userID, kind string) error {
+	if userID == "" || kind == "" {
+		return fmt.Errorf("user id and kind required")
 	}
-	if err != sql.ErrNoRows {
-		return err
-	}
-	return d.InsertAPIToken(ctx, &APIToken{
-		UserID: userID, Name: name, Kind: "env", Prefix: prefix, Scope: scope,
-	})
-}
-
-func (d *DB) GetAPITokenByKind(ctx context.Context, userID, kind string) (*APIToken, error) {
-	row := d.SQL.QueryRowContext(ctx, `
-		SELECT id, user_id, name, kind, token_hash, prefix, scope, created_at, last_used_at
-		FROM api_tokens WHERE user_id=? AND kind=?`, userID, kind)
-	t, err := scanAPIToken(row)
-	if err != nil {
-		return nil, err
-	}
-	return &t, nil
+	_, err := d.SQL.ExecContext(ctx, `DELETE FROM api_tokens WHERE user_id=? AND kind=?`, userID, kind)
+	return err
 }
 
 func (d *DB) DeleteAPIToken(ctx context.Context, userID, tokenID string) error {

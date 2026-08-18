@@ -32,7 +32,7 @@ type Principal struct {
 	UserID   string
 	Username string
 	Scope    string // read | write
-	Via      string // session | token | password
+	Via      string // session | token
 }
 
 func PrincipalFrom(ctx context.Context) *Principal {
@@ -58,7 +58,7 @@ type SessionStore struct {
 	attempts map[string][]time.Time
 }
 
-// EnsureBootstrapAuth creates/updates the env admin user and the password-as-token row.
+// EnsureBootstrapAuth creates or updates the env admin user.
 func EnsureBootstrapAuth(ctx context.Context, database *db.DB, username, password string) error {
 	hash, err := HashPassword(password)
 	if err != nil {
@@ -68,7 +68,7 @@ func EnsureBootstrapAuth(ctx context.Context, database *db.DB, username, passwor
 	if err != nil {
 		return err
 	}
-	return database.UpsertEnvToken(ctx, u.ID, "ADMIN_PASSWORD", "password", scopeWrite)
+	return database.DeleteAPITokensByKind(ctx, u.ID, "env")
 }
 
 func NewSessionStore(database *db.DB) *SessionStore {
@@ -140,18 +140,12 @@ func (s *SessionStore) recordLoginAttempt(ip string) {
 
 func (s *SessionStore) Login(ctx context.Context, username, password string) (token string, ok bool) {
 	username = strings.TrimSpace(username)
-	var u *db.User
-	if username == "" {
-		// Scripts (Usage-Sync etc.) still POST only password, as before the user field existed.
-		u = s.userByPassword(ctx, password)
-	} else {
-		var err error
-		u, err = s.verifyUser(ctx, username, password)
-		if err != nil {
-			return "", false
-		}
+	if username == "" || password == "" {
+		_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"), []byte(password))
+		return "", false
 	}
-	if u == nil {
+	u, err := s.verifyUser(ctx, username, password)
+	if err != nil {
 		return "", false
 	}
 	token = uuid.NewString()
@@ -159,23 +153,6 @@ func (s *SessionStore) Login(ctx context.Context, username, password string) (to
 	s.sessions[token] = sessionInfo{UserID: u.ID, Username: u.Username, Expires: time.Now().Add(s.ttl)}
 	s.mu.Unlock()
 	return token, true
-}
-
-func (s *SessionStore) userByPassword(ctx context.Context, password string) *db.User {
-	if s.DB == nil || password == "" {
-		return nil
-	}
-	users, err := s.DB.ListUsers(ctx)
-	if err != nil {
-		return nil
-	}
-	for i := range users {
-		if CheckPasswordHash(users[i].PasswordHash, password) {
-			return &users[i]
-		}
-	}
-	_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"), []byte(password))
-	return nil
 }
 
 func (s *SessionStore) verifyUser(ctx context.Context, username, password string) (*db.User, error) {
@@ -226,19 +203,16 @@ func (s *SessionStore) AuthenticateBearer(ctx context.Context, raw string) (*Pri
 	if raw == "" || s.DB == nil {
 		return nil, false
 	}
-	if tok, err := s.DB.GetAPITokenByHash(ctx, hashAPIToken(raw)); err == nil {
-		u, uerr := s.DB.GetUser(ctx, tok.UserID)
-		if uerr != nil {
-			return nil, false
-		}
-		s.DB.TouchAPIToken(ctx, tok.ID)
-		return &Principal{UserID: u.ID, Username: u.Username, Scope: tok.Scope, Via: "token"}, true
+	tok, err := s.DB.GetAPITokenByHash(ctx, hashAPIToken(raw))
+	if err != nil {
+		return nil, false
 	}
-	// ADMIN_PASSWORD also works as a write token (env bootstrap).
-	if u := s.userByPassword(ctx, raw); u != nil {
-		return &Principal{UserID: u.ID, Username: u.Username, Scope: scopeWrite, Via: "password"}, true
+	u, uerr := s.DB.GetUser(ctx, tok.UserID)
+	if uerr != nil {
+		return nil, false
 	}
-	return nil, false
+	s.DB.TouchAPIToken(ctx, tok.ID)
+	return &Principal{UserID: u.ID, Username: u.Username, Scope: tok.Scope, Via: "token"}, true
 }
 
 func (s *SessionStore) Middleware(next http.Handler) http.Handler {

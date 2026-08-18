@@ -23,6 +23,24 @@ func AnnotateServices(snaps []SnapshotInfo, snapService map[string]string) {
 	}
 }
 
+// LatestSnapshotForService returns the newest snapshot for a service, or nil.
+func LatestSnapshotForService(snaps []SnapshotInfo, service string) *SnapshotInfo {
+	service = strings.ToLower(strings.TrimSpace(service))
+	if service == "" {
+		return nil
+	}
+	for i := range snaps {
+		svc := snaps[i].Service
+		if svc == "" {
+			svc = InferServiceFromSource(snaps[i].Source)
+		}
+		if strings.EqualFold(svc, service) {
+			return &snaps[i]
+		}
+	}
+	return nil
+}
+
 // FilterByService returns snapshots for one service (empty service = all).
 func FilterByService(snaps []SnapshotInfo, service string) []SnapshotInfo {
 	service = strings.ToLower(strings.TrimSpace(service))

@@ -105,7 +105,7 @@ Honest snapshot of what works today vs. what is still thin. Treat this as early/
 | Backends | **Filesystem only** today — no S3 / RustFS / offsite replication yet |
 | UI password export | After tenant create + Tenant → Einstellungen → **Offline-Recovery** (re-enter admin password → reveal / `.txt` download) |
 
-**Disk note:** Exchange and OneDrive keep a full **live sync tree** *and* Kopia snapshots of that tree. Plan capacity for both.
+**Disk note:** By default only **Kopia snapshots** stay on disk. Exchange/OneDrive restore the last snapshot as a working tree for the run, then delete it (`KEEP_LIVE_SYNC=true` keeps the tree — faster incrementals, ~2× disk).
 
 ### Per-service maturity
 
@@ -168,7 +168,7 @@ openssl rand -base64 32
 go run ./cmd/server
 ```
 
-Open http://localhost:8080 and sign in with `ADMIN_USER` / `ADMIN_PASSWORD`. The password also works as a write API token (`Authorization: Bearer …`).
+Open http://localhost:8080 and sign in with `ADMIN_USER` / `ADMIN_PASSWORD`. For `/api`, create a Bearer token under Settings.
 
 **Never commit `.env`.** Only `.env.example` (placeholders) belongs in git.
 
@@ -256,8 +256,9 @@ Publish artifacts from CI (GitHub/GitLab Releases) and install the same way as �
 | `STAGING_ROOT` | no | `./data/staging` | Temporary backup staging |
 | `MASTER_KEY` | **yes** | — | Base64 32-byte AES key |
 | `ADMIN_USER` | no | `m365adminuser` | UI login name |
-| `ADMIN_PASSWORD` | **yes** | — | UI password (min 8 chars); also a write API token |
+| `ADMIN_PASSWORD` | **yes** | — | UI login password (min 8 chars) |
 | `MAX_CONCURRENT_JOBS` | no | `2` | Max parallel jobs **across tenants**. Per tenant+service always ≤1; incrementals wait while a full sync is active (see [docs/backup-logic.md](docs/backup-logic.md)) |
+| `KEEP_LIVE_SYNC` | no | `false` | `true` keeps Exchange/OneDrive trees on disk (~2×); default restores from the last snapshot per run |
 | `SMTP_*` | no | — | Optional env-level SMTP fallback |
 
 Secrets must live in environment / `EnvironmentFile=` only — never in the repository.
@@ -419,7 +420,7 @@ Events: `job_error`, `job_warning`, `job_success`, `key_expiry_30d`, `key_expiry
 ## Security
 
 - `MASTER_KEY` encrypts tenant client secrets and repo passwords (AES-256-GCM)
-- Session cookie auth for the admin UI
+- Session cookie auth for the admin UI (username + password); Bearer tokens for `/api`
 - Signed, time-limited state for consent callbacks
 - See [SECURITY.md](SECURITY.md) for disclosure and “never commit secrets”
 

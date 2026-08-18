@@ -25,6 +25,9 @@ type Config struct {
 	AdminPassword     string
 	MaxConcurrentJobs int
 	ExchangeWorkers   int
+	// KeepLiveSync leaves Exchange/OneDrive working trees on disk after a snapshot.
+	// Default false: only Kopia snapshots persist; the tree is restored for the next run.
+	KeepLiveSync bool
 	// DisplayTZ is the IANA zone for UI timestamps (storage stays UTC).
 	DisplayTZ    string
 	DisplayLoc   *time.Location
@@ -51,6 +54,7 @@ func Load() (*Config, error) {
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		MaxConcurrentJobs: getenvInt("MAX_CONCURRENT_JOBS", 2),
 		ExchangeWorkers:   getenvInt("EXCHANGE_WORKERS", 6),
+		KeepLiveSync:      getenvBool("KEEP_LIVE_SYNC", false),
 		DisplayTZ:         displayTZName(),
 		SMTPHost:          os.Getenv("SMTP_HOST"),
 		SMTPPort:          getenvInt("SMTP_PORT", 587),
@@ -172,6 +176,21 @@ func (c *Config) FormatTime(t time.Time, layout string) string {
 		loc = time.UTC
 	}
 	return t.In(loc).Format(layout)
+}
+
+func getenvBool(k string, def bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(k)))
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
 }
 
 func getenvInt(k string, def int) int {

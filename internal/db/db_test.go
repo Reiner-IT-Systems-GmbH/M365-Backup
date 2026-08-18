@@ -71,16 +71,21 @@ func TestUserAndAPIToken(t *testing.T) {
 	if err != nil || u2.ID != u.ID || u2.PasswordHash != "hash-2" {
 		t.Fatalf("update: %v %+v", err, u2)
 	}
-	if err := database.UpsertEnvToken(ctx, u.ID, "ADMIN_PASSWORD", "password", "write"); err != nil {
-		t.Fatal(err)
-	}
 	if err := database.InsertAPIToken(ctx, &db.APIToken{
 		UserID: u.ID, Name: "ci", Kind: "user", TokenHash: "abc", Prefix: "m365_ab…", Scope: "read",
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.InsertAPIToken(ctx, &db.APIToken{
+		UserID: u.ID, Name: "legacy-env", Kind: "env", Prefix: "password", Scope: "write",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DeleteAPITokensByKind(ctx, u.ID, "env"); err != nil {
+		t.Fatal(err)
+	}
 	list, err := database.ListAPITokens(ctx, u.ID)
-	if err != nil || len(list) != 2 {
+	if err != nil || len(list) != 1 {
 		t.Fatalf("list=%d err=%v", len(list), err)
 	}
 	got, err := database.GetAPITokenByHash(ctx, "abc")

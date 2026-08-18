@@ -157,7 +157,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	token, ok := s.Sessions.Login(r.Context(), user, pass)
 	if !ok {
 		s.Sessions.recordLoginAttempt(ip)
-		http.Error(w, "invalid password", http.StatusUnauthorized)
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{

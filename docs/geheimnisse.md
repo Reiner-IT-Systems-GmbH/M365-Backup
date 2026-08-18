@@ -11,7 +11,7 @@ ausdrücklich dokumentiert.
 | **Tenant-Kopia-Passwort** | DB (encrypted) + Offline-Recovery-Export | Öffnet das Kopia-`repo/` dieses Tenants |
 | **Azure Client Secret** | DB (encrypted) | Graph App-Only Auth |
 | **`ADMIN_USER`** | Env | Login-Name (Default `m365adminuser`) |
-| **`ADMIN_PASSWORD`** | Env | Login + Write-API-Token (bcrypt in DB) |
+| **`ADMIN_PASSWORD`** | Env | UI-Login (bcrypt in DB); API separat per Bearer-Token |
 
 > Recovery-Sheet in der UI: *„This is NOT the MASTER_KEY. MASTER_KEY only encrypts secrets
 > in the app database.“*

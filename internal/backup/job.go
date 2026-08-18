@@ -28,6 +28,7 @@ type Runner struct {
 	Notifier      *notification.Service
 	StagingRoot   string
 	MaxConcurrent int
+	KeepLiveSync  bool
 	Log           *slog.Logger
 
 	sem          chan struct{}
@@ -348,6 +349,11 @@ func (r *Runner) runJob(jobID string) {
 	}
 	defer func() { _ = os.RemoveAll(stageDir) }()
 
+	if err := r.hydrateLiveSync(ctx, t, kopiaPass, job.Service, prog); err != nil {
+		r.fail(ctx, job, err)
+		return
+	}
+
 	prog.Emit("info", "running service backup…")
 	job.ProgressPct = 2
 	job.ProgressMessage = "Running service backup…"
@@ -395,6 +401,7 @@ func (r *Runner) runJob(jobID string) {
 			job.ErrorMessage = summarizeResult(result)
 		}
 		_ = r.DB.UpdateJob(ctx, job)
+		r.discardLiveSync(t.KopiaRepoPath, job.Service)
 		r.Log.Info("job finished", "id", job.ID, "status", job.Status, "export", job.KopiaSnapshot,
 			"items", result.ItemsNew, "warnings", len(result.Warnings))
 		return
@@ -460,6 +467,7 @@ func (r *Runner) runJob(jobID string) {
 		job.ErrorMessage = summarizeResult(result)
 	}
 	_ = r.DB.UpdateJob(ctx, job)
+	r.discardLiveSync(t.KopiaRepoPath, job.Service)
 	r.Log.Info("job finished", "id", job.ID, "status", job.Status, "snapshot", snap.ID,
 		"items", result.ItemsNew, "skipped", result.SkippedUsers, "warnings", len(result.Warnings))
 }

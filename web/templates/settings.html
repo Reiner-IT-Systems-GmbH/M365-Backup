@@ -36,7 +36,7 @@
         <tbody>
         {{range .Tokens}}
           <tr>
-            <td>{{.Name}}{{if eq .Kind "env"}} <span class="badge">env</span>{{end}}</td>
+            <td>{{.Name}}</td>
             <td><span class="badge">{{.Scope}}</span></td>
             <td><code>{{.Prefix}}</code></td>
             <td>

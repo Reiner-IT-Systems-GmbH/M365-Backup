@@ -6,7 +6,7 @@ info:
 
     Most routes require a session cookie (`POST /login` with username + password)
     or `Authorization: Bearer <token>`. Tokens are created under Settings
-    (`read` = GET only, `write` = all methods). `ADMIN_PASSWORD` also works as a write token.
+    (`read` = GET only, `write` = all methods).
     The consent callback is unauthenticated (Microsoft redirect). Health checks are public.
 
     This software is provided as-is for self-hosted use.
@@ -53,8 +53,7 @@ paths:
       tags: [auth]
       summary: Create admin session
       description: |
-        Form or JSON login. `username` is optional — scripts may send only `password`
-        (matches `ADMIN_PASSWORD`, same as before the username field). Sets an HttpOnly `session` cookie (24h TTL).
+        Form or JSON login with username and password. Sets an HttpOnly `session` cookie (24h TTL).
       security: []
       requestBody:
         required: true
@@ -62,7 +61,7 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
-              required: [password]
+              required: [username, password]
               properties:
                 username:
                   type: string
@@ -73,7 +72,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [password]
+              required: [username, password]
               properties:
                 username:
                   type: string
@@ -89,7 +88,7 @@ paths:
                 type: string
                 example: session=<uuid>; Path=/; HttpOnly; SameSite=Lax
         "401":
-          description: Invalid password
+          description: Invalid credentials
 
   /logout:
     post:
@@ -449,7 +448,7 @@ components:
     BearerToken:
       type: http
       scheme: bearer
-      description: "API token from Settings, or ADMIN_PASSWORD. read = GET; write = all methods."
+      description: "API token from Settings. read = GET; write = all methods."
 
   parameters:
     TenantId:
