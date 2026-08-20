@@ -482,10 +482,10 @@ func (s *Server) handleJobDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "job not found", 404)
 		return
 	}
-	logs, _ := s.DB.ListJobLogs(r.Context(), jid)
-	s.render(w, r, "job_detail.html", map[string]any{
-		"Tenant": t, "Job": job, "Logs": logs,
-	})
+	logs, total, _ := s.DB.ListJobLogsTail(r.Context(), jid, db.DefaultJobLogTail)
+	data := map[string]any{"Tenant": t, "Job": job}
+	mergeJobLogView(data, logs, total)
+	s.render(w, r, "job_detail.html", data)
 }
 
 func (s *Server) handleJobLive(w http.ResponseWriter, r *http.Request) {
@@ -501,10 +501,45 @@ func (s *Server) handleJobLive(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "job not found", 404)
 		return
 	}
-	logs, _ := s.DB.ListJobLogs(r.Context(), jid)
-	s.render(w, r, "job_live_partial.html", map[string]any{
-		"Tenant": t, "Job": job, "Logs": logs,
-	})
+
+	switch r.URL.Query().Get("part") {
+	case "progress":
+		s.render(w, r, "job_progress_partial.html", map[string]any{"Tenant": t, "Job": job})
+		return
+	case "logs":
+		afterID, afterAt := parseJobLogCursor(r)
+		var (
+			logs  []db.JobLog
+			total int
+		)
+		if afterID == "" && afterAt.IsZero() {
+			logs, total, _ = s.DB.ListJobLogsTail(r.Context(), jid, db.DefaultJobLogTail)
+		} else {
+			logs, _ = s.DB.ListJobLogsAfter(r.Context(), jid, afterAt, afterID, db.DefaultJobLogTail)
+			total, _ = s.DB.CountJobLogs(r.Context(), jid)
+		}
+		data := map[string]any{
+			"Tenant": t, "Job": job,
+			"JobRunning": jobRunning(job.Status),
+			"LogTotal":   total,
+			"Logs":       logs,
+		}
+		if len(logs) > 0 {
+			lastID, lastAt := jobLogCursor(logs)
+			data["LastLogID"] = lastID
+			data["LastLogAtMS"] = lastAt.UnixMilli()
+		} else {
+			data["LastLogID"] = afterID
+			data["LastLogAtMS"] = afterAt.UnixMilli()
+		}
+		s.render(w, r, "job_log_append_partial.html", data)
+		return
+	}
+
+	logs, total, _ := s.DB.ListJobLogsTail(r.Context(), jid, db.DefaultJobLogTail)
+	data := map[string]any{"Tenant": t, "Job": job}
+	mergeJobLogView(data, logs, total)
+	s.render(w, r, "job_live_partial.html", data)
 }
 
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {

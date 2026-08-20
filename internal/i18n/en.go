@@ -153,6 +153,7 @@ var en = map[string]string{
 	"jobs.summary":       "Summary",
 	"jobs.detail_log":    "Detail log",
 	"jobs.detail_hint":   "Info/Warn/Error only — newest entries at the bottom.",
+	"jobs.log_tail_note": "Showing the last %d of %d log lines.",
 	"jobs.no_detail_log": "No detail log (job from before job_logs, or still empty).",
 	"jobs.bytes":         "bytes",
 	"jobs.snapshot":      "Snapshot",

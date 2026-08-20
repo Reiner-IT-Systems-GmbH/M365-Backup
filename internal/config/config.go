@@ -24,6 +24,8 @@ type Config struct {
 	AdminUser         string
 	AdminPassword     string
 	MaxConcurrentJobs int
+	MaxConcurrentFull int
+	JobStallTimeout   time.Duration
 	ExchangeWorkers   int
 	// DisplayTZ is the IANA zone for UI timestamps (storage stays UTC).
 	DisplayTZ    string
@@ -50,7 +52,9 @@ func Load() (*Config, error) {
 		AdminUser:         getenv("ADMIN_USER", "m365adminuser"),
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		MaxConcurrentJobs: getenvInt("MAX_CONCURRENT_JOBS", 2),
-		ExchangeWorkers:   getenvInt("EXCHANGE_WORKERS", 6),
+		MaxConcurrentFull: getenvInt("MAX_CONCURRENT_FULL_JOBS", 1),
+		JobStallTimeout:   getenvDuration("JOB_STALL_TIMEOUT", 2*time.Hour),
+		ExchangeWorkers:   getenvInt("EXCHANGE_WORKERS", 3),
 		DisplayTZ:         displayTZName(),
 		SMTPHost:          os.Getenv("SMTP_HOST"),
 		SMTPPort:          getenvInt("SMTP_PORT", 587),
@@ -82,10 +86,13 @@ func Load() (*Config, error) {
 		cfg.MaxConcurrentJobs = 1
 	}
 	if cfg.ExchangeWorkers < 1 {
-		cfg.ExchangeWorkers = 6
+		cfg.ExchangeWorkers = 3
 	}
 	if cfg.ExchangeWorkers > 32 {
 		cfg.ExchangeWorkers = 32
+	}
+	if cfg.MaxConcurrentFull < 1 {
+		cfg.MaxConcurrentFull = 1
 	}
 
 	if cfg.DBDriver == db.DriverMySQL || cfg.DBDriver == "mariadb" {
@@ -194,6 +201,24 @@ func getenvInt(k string, def int) int {
 		return def
 	}
 	return n
+}
+
+func getenvDuration(k string, def time.Duration) time.Duration {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(k)))
+	if v == "" {
+		return def
+	}
+	if v == "0" || v == "off" || v == "false" || v == "disable" || v == "disabled" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	if d > 0 && d < time.Minute {
+		return time.Minute
+	}
+	return d
 }
 
 func splitComma(s string) []string {

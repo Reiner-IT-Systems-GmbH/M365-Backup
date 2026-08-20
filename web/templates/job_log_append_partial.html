@@ -1,0 +1,10 @@
+{{define "job_log_append_partial.html"}}
+{{template "job_log_lines_partial.html" .}}
+{{if .JobRunning}}
+<div id="job-log-poll" hx-swap-oob="true"
+     hx-get="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/live?part=logs&amp;after={{.LastLogID}}&amp;after_at={{.LastLogAtMS}}"
+     hx-trigger="every 5s"
+     hx-target="#job-log-view"
+     hx-swap="beforeend"></div>
+{{end}}
+{{end}}

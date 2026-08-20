@@ -23,7 +23,8 @@ import (
 
 // ExchangeBackup backs up Exchange Online mailboxes.
 // First run does a full Graph delta into the catalog; later runs only fetch changes
-// (deltaLink). Multiple mailboxes run in parallel.
+// (deltaLink). Messages already in the catalog with a live blob skip Graph $value.
+// Multiple mailboxes run in parallel.
 type ExchangeBackup struct {
 	Workers int // parallel mailboxes; default 6
 }
@@ -32,7 +33,7 @@ func (ExchangeBackup) Name() string { return "exchange" }
 
 func (e ExchangeBackup) workers() int {
 	if e.Workers < 1 {
-		return 6
+		return 3
 	}
 	return e.Workers
 }
@@ -148,8 +149,8 @@ func (e ExchangeBackup) backupOneMailbox(
 		return
 	}
 
-	modeHint := "incremental delta"
-	// Heuristic: if no folder has a real delta token yet, this mailbox is still initial sync.
+	modeHint := "incremental (saved deltaLink)"
+	// Heuristic: if no folder has a real delta token yet, this mailbox is still a folder resync.
 	anyDelta := false
 	for _, folder := range folders {
 		fid := ptrStr(folder.GetId())
@@ -160,10 +161,10 @@ func (e ExchangeBackup) backupOneMailbox(
 		}
 	}
 	if !anyDelta {
-		modeHint = "FULL initial sync"
+		modeHint = "folder resync (no deltaLink)"
 	}
 
-	msg = fmt.Sprintf("[%d/%d] %s [%s]: %d folder(s) — %s…", idx+1, total, upn, kind, len(folders), modeHint)
+	msg = fmt.Sprintf("[%d/%d] %s [%s]: %d folder(s) — Graph token: %s…", idx+1, total, upn, kind, len(folders), modeHint)
 	res.Info(msg)
 	prog.SyncJob(job, res, pctFor(), msg)
 
@@ -181,7 +182,11 @@ func (e ExchangeBackup) backupOneMailbox(
 		if fname == "" {
 			fname = sanitize(fid)
 		}
-		n, warn := backupFolderDelta(ctx, gc, tokens, tenant.ID, uid, upn, fid, fname, mailbox, cat, res)
+		prog.SyncJob(job, res, pctFor(), fmt.Sprintf("%s / %s…", upn, fname))
+		n, warn := backupFolderDelta(ctx, gc, tokens, tenant.ID, uid, upn, fid, fname, mailbox, cat, res, func(msg string) {
+			res.Info(msg)
+			prog.SyncJob(job, res, pctFor(), msg)
+		})
 		nMsgs += n
 		for _, w := range warn {
 			res.Warn(w)
@@ -209,7 +214,7 @@ func deltaKey(userID, folderID string) string {
 }
 
 func backupFolderDelta(
-	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, folderID, folderName, mailbox string, cat *catalog.Store, res *Result,
+	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, folderID, folderName, mailbox string, cat *catalog.Store, res *Result, live func(string),
 ) (int, []string) {
 	var warnings []string
 	tokenKey := deltaKey(userID, folderID)
@@ -233,7 +238,9 @@ func backupFolderDelta(
 	)
 	deltaRB := gc.Graph.Users().ByUserId(userID).MailFolders().ByMailFolderId(folderID).Messages().Delta()
 	if saved != "" {
-		resp, err = deltaRB.WithUrl(saved).GetAsDeltaGetResponse(ctx, nil)
+		pageCtx, cancel := graph.WithSDKTimeout(ctx)
+		resp, err = deltaRB.WithUrl(saved).GetAsDeltaGetResponse(pageCtx, nil)
+		cancel()
 		if err != nil && isDeltaGone(err) {
 			res.Info(fmt.Sprintf("%s / %s: delta token expired — full resync of folder", upn, folderName))
 			saved = ""
@@ -241,7 +248,9 @@ func backupFolderDelta(
 		}
 	}
 	if saved == "" && err == nil {
-		resp, err = deltaRB.GetAsDeltaGetResponse(ctx, cfg)
+		pageCtx, cancel := graph.WithSDKTimeout(ctx)
+		resp, err = deltaRB.GetAsDeltaGetResponse(pageCtx, cfg)
+		cancel()
 	}
 	if err != nil {
 		if isMailboxUnavailable(err) {
@@ -251,6 +260,8 @@ func backupFolderDelta(
 	}
 
 	n := 0
+	skippedStored := 0
+	progress := newFolderProgress()
 	for {
 		if err := ctx.Err(); err != nil {
 			return n, append(warnings, err.Error())
@@ -268,6 +279,24 @@ func backupFolderDelta(
 				_ = cat.Delete(ctx, "exchange", mid)
 				n++
 				res.addItems(1, 0)
+				continue
+			}
+			name := emlFileName(subj, mid)
+			subject := storage.DecodeMIMEHeader(subj)
+			existing, err := cat.LiveBlob(ctx, "exchange", mid)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("%s catalog %s: %v", upn, mid, err))
+				continue
+			}
+			if skipContentDownload(existing, nil) {
+				if err := refreshCatalogMeta(ctx, cat, existing, mailbox, folderName, name, subject); err != nil {
+					warnings = append(warnings, err.Error())
+					continue
+				}
+				skippedStored++
+				res.addItems(1, 0)
+				n++
+				progress.maybeEmit(res, live, upn, folderName, n, skippedStored)
 				continue
 			}
 			rawURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s/messages/%s/$value", userID, mid)
@@ -288,8 +317,8 @@ func backupFolderDelta(
 			}
 			it := catalog.Item{
 				Service: "exchange", GraphItemID: mid, Mailbox: mailbox, ParentPath: folderName,
-				Name: emlFileName(subj, mid), ContentType: "message/rfc822",
-				Subject: storage.DecodeMIMEHeader(subj),
+				Name: name, ContentType: "message/rfc822",
+				Subject: subject,
 			}
 			if err := cat.Put(ctx, it, body); err != nil {
 				warnings = append(warnings, err.Error())
@@ -297,25 +326,20 @@ func backupFolderDelta(
 			}
 			res.addItems(1, int64(len(body)))
 			n++
-			if n%250 == 0 {
-				// Progress heartbeat only — NOT a download limit; pagination continues.
-				res.Info(fmt.Sprintf("%s / %s: progress %d message change(s) this folder (not a limit)…", upn, folderName, n))
-			}
+			progress.maybeEmit(res, live, upn, folderName, n, skippedStored)
 		}
 		next := resp.GetOdataNextLink()
+		delta := resp.GetOdataDeltaLink()
+		persistDeltaURL(ctx, tokens, tenantID, "exchange", tokenKey, odataResumeURL(next, delta))
 		if next != nil && *next != "" {
-			resp, err = deltaRB.WithUrl(*next).GetAsDeltaGetResponse(ctx, nil)
+			pageCtx, cancel := graph.WithSDKTimeout(ctx)
+			resp, err = deltaRB.WithUrl(*next).GetAsDeltaGetResponse(pageCtx, nil)
+			cancel()
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("%s folder page: %v", upn, err))
 				break
 			}
 			continue
-		}
-		delta := resp.GetOdataDeltaLink()
-		if delta != nil && *delta != "" {
-			_ = tokens.UpsertDeltaToken(ctx, db.DeltaToken{
-				TenantID: tenantID, Service: "exchange", UserID: tokenKey, Token: *delta,
-			})
 		}
 		break
 	}

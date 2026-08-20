@@ -1,53 +1,35 @@
 {{define "job_live_partial.html"}}
-<div id="job-live"
-     {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
-     hx-get="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/live"
-     hx-trigger="every 3s"
-     hx-swap="outerHTML"
-     hx-on::after-settle="document.getElementById('job-log-view') && (document.getElementById('job-log-view').scrollTop = document.getElementById('job-log-view').scrollHeight + 1e6)"
-     {{end}}>
-  {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
-  <form method="post" action="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/cancel" class="inline"
-        data-confirm="{{.L.T "jobs.confirm_stop"}}"
-        onsubmit="return confirm(this.dataset.confirm);">
-    <button type="submit" class="btn-stop">{{.L.T "jobs.stop_backup"}}</button>
-  </form>
-  {{end}}
-
-  <section class="progress-panel {{.Job.Status}}">
-    <div class="progress-head">
-      <strong class="progress-pct">{{.Job.ProgressPct}}%</strong>
-      <span class="progress-now">{{if .Job.ProgressMessage}}{{.Job.ProgressMessage}}{{else if or (eq .Job.Status "running") (eq .Job.Status "queued")}}{{.L.T "jobs.queue_start"}}{{else}}—{{end}}</span>
-    </div>
-    <div class="progress-track" role="progressbar" aria-valuenow="{{.Job.ProgressPct}}" aria-valuemin="0" aria-valuemax="100">
-      <div class="progress-fill" style="width: {{.Job.ProgressPct}}%"></div>
-    </div>
-    {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
-    <p class="muted progress-hint">{{.L.T "jobs.live_items"}} {{.Job.ItemsNew}} · {{.Job.BytesTransferred}} {{.L.T "jobs.bytes"}}</p>
-    {{end}}
-  </section>
-
-  {{if .Job.ErrorMessage}}
-  <p class="callout"><strong>{{.L.T "jobs.summary"}}:</strong> {{.Job.ErrorMessage}}</p>
-  {{end}}
+<div id="job-live">
+  {{template "job_progress_partial.html" .}}
 
   <section class="guide-panel">
     <h2>{{.L.T "jobs.detail_log"}}</h2>
     <p class="muted">{{.L.T "jobs.detail_hint"}}</p>
+    {{if gt .LogTotal .LogTailShown}}
+    <p class="muted">{{printf (.L.T "jobs.log_tail_note") .LogTailShown .LogTotal}}</p>
+    {{end}}
     {{if .Logs}}
     <div class="log-view" id="job-log-view">
-      {{range .Logs}}
-      {{if ne .Level "skip"}}
-      <div class="log-line log-{{.Level}}">
-        <span class="log-lvl">{{.Level}}</span>
-        <span class="log-msg">{{.Message}}</span>
-      </div>
-      {{end}}
-      {{end}}
-      <div id="job-log-anchor"></div>
+      {{template "job_log_lines_partial.html" .}}
     </div>
+    {{if and (or (eq .Job.Status "running") (eq .Job.Status "queued")) .LastLogID}}
+    <div id="job-log-poll"
+         hx-get="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/live?part=logs&amp;after={{.LastLogID}}&amp;after_at={{.LastLogAtMS}}"
+         hx-trigger="every 5s"
+         hx-target="#job-log-view"
+         hx-swap="beforeend"></div>
+    {{end}}
+    {{else}}
+    {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
+    <div class="log-view" id="job-log-view"></div>
+    <div id="job-log-poll"
+         hx-get="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/live?part=logs"
+         hx-trigger="every 5s"
+         hx-target="#job-log-view"
+         hx-swap="beforeend"></div>
     {{else}}
     <p class="muted">{{.L.T "jobs.no_detail_log"}}</p>
+    {{end}}
     {{end}}
   </section>
 </div>

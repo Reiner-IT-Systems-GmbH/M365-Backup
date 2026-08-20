@@ -48,7 +48,8 @@
     document.addEventListener('htmx:afterSettle', function (ev) {
       var t = ev.target;
       if (!t) return;
-      if (t.id === 'job-live' || (t.querySelector && t.querySelector('#job-log-view'))) {
+      if (t.id === 'job-progress' || t.id === 'job-live' || t.id === 'job-log-view' ||
+          (t.querySelector && t.querySelector('#job-log-view'))) {
         scheduleLogScroll();
       }
     });

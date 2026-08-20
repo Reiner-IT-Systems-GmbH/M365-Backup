@@ -1,0 +1,33 @@
+{{define "job_progress_partial.html"}}
+<div id="job-progress"
+     {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
+     hx-get="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/live?part=progress"
+     hx-trigger="every 3s"
+     hx-swap="outerHTML"
+     {{end}}>
+  {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
+  <form method="post" action="/tenants/{{.Tenant.ID}}/jobs/{{.Job.ID}}/cancel" class="inline"
+        data-confirm="{{.L.T "jobs.confirm_stop"}}"
+        onsubmit="return confirm(this.dataset.confirm);">
+    <button type="submit" class="btn-stop">{{.L.T "jobs.stop_backup"}}</button>
+  </form>
+  {{end}}
+
+  <section class="progress-panel {{.Job.Status}}">
+    <div class="progress-head">
+      <strong class="progress-pct">{{.Job.ProgressPct}}%</strong>
+      <span class="progress-now">{{if .Job.ProgressMessage}}{{.Job.ProgressMessage}}{{else if or (eq .Job.Status "running") (eq .Job.Status "queued")}}{{.L.T "jobs.queue_start"}}{{else}}—{{end}}</span>
+    </div>
+    <div class="progress-track" role="progressbar" aria-valuenow="{{.Job.ProgressPct}}" aria-valuemin="0" aria-valuemax="100">
+      <div class="progress-fill" style="width: {{.Job.ProgressPct}}%"></div>
+    </div>
+    {{if or (eq .Job.Status "running") (eq .Job.Status "queued")}}
+    <p class="muted progress-hint">{{.L.T "jobs.live_items"}} {{.Job.ItemsNew}} · {{.Job.BytesTransferred}} {{.L.T "jobs.bytes"}}</p>
+    {{end}}
+  </section>
+
+  {{if .Job.ErrorMessage}}
+  <p class="callout"><strong>{{.L.T "jobs.summary"}}:</strong> {{.Job.ErrorMessage}}</p>
+  {{end}}
+</div>
+{{end}}

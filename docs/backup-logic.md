@@ -37,12 +37,17 @@ Graph (delta) ──► catalog.Put / Delete ──► blobs/ (AES-GCM CAS)
 
 Gesamt-Plattenbedarf ≈ Blobs (dedup) + Manifeste + Exports. Kein zweiter Klartext-Baum.
 
-### Zwei Inkrement-Ebenen
+### Inkrement-Ebenen
 
-1. **Microsoft Graph Delta** — nach dem ersten Full-Sync nur Änderungen in den Katalog.
-2. **Content-Addressed Blobs** — gleicher SHA-256 wird nicht zweimal geschrieben.
+1. **Microsoft Graph Delta** — nach dem ersten Full-Sync nur Änderungen (neue/gelöschte/verschobene Items), **pro Ordner** (Exchange) bzw. pro Drive (OneDrive). Ohne gespeicherten `deltaLink` läuft der Job den Ordner erneut vollständig durch (Folder-Replay). `odata.nextLink` wird nach jeder Delta-Seite checkpointiert, damit Abbrüche nicht bei Item 0 neu starten.
+2. **Kein Content-Re-Fetch** — existiert die Graph-ID schon mit Blob-Hash im Katalog (Exchange) bzw. gleicher Dateigröße (OneDrive), wird MIME/`/content` nicht erneut von Graph geholt. Der Skip-Pfad liest nur SQL, kein `os.Stat` auf dem Blob-Store. Ordner-/Betreff-Moves aktualisieren nur den Katalog. Body-Edits an bestehenden Mails werden damit nicht erkannt (selten); ein späteres Full mit fehlendem Blob holt sie nach.
+3. **Content-Addressed Blobs** — gleicher SHA-256 wird nicht zweimal geschrieben.
+4. **Kein Snapshot ohne Änderungen** — `CommitSnapshot` überspringt Generation + Manifest, wenn der Lauf nichts in `pending` hatte (typisches No-Op-Inkrement).
+5. **Manifest-Schreiben** — bei Änderungen streamt der Commit nur `path/hash/size` aus SQL (kein volles `ListLiveItems` mit Subject etc. im RAM) und meldet Fortschritt (~alle 5 s), damit der Job nicht bei 95 % „einfriert“.
 
 Ist der Katalog leer und kein `sync/` mehr da, löscht der Runner die Delta-Tokens und macht einen Graph-Full (`job_type=full`). Scheduler- und UI-Inkremente werden in diesem Fall zu Full. Fehlt der Katalog tenant-weit (kein Snapshot, kein `sync/`, keine Blobs), startet der erste Lauf einen Full-Sync **aller** enabled Graph-Dienste. Alte `repo/`-Snapshots werden **nicht** importiert.
+
+**Parallelität:** `MAX_CONCURRENT_JOBS` begrenzt parallele Jobs global (über Tenants). Mailbox-Parallelität innerhalb eines Exchange-Jobs steuert `EXCHANGE_WORKERS` — das sind unabhängige Limits. Fortschritt in der UI kommt zeitbasiert (~5 s) oder alle 250 Items; Graph-SDK-Seiten haben ein Request-Timeout (kein unbegrenzt hängender Delta-Call).
 
 ---
 
@@ -98,6 +103,10 @@ Unterschiedliche Dienste dürfen parallel laufen, **solange kein Full-Sync aktiv
 7. **Catalog Commit** serialisiert Generationen pro Tenant-Store (Datei-Lock + Job-Gate).
 8. **Global** `MAX_CONCURRENT_JOBS`: begrenzt parallele Jobs **über alle Tenants**
    (Semaphore).
+9. **`MAX_CONCURRENT_FULL_JOBS` (default 1):** nur so viele `job_type=full` laufen
+   gleichzeitig; weitere Fulls (z. B. Empty-Store-Fan-out) warten in der Queue.
+10. **Watchdog** (`JOB_STALL_TIMEOUT`, default 2h): beendet `running`-Jobs ohne
+   Fortschritt (Bytes, Items, Progress-Text). Staging wird aufgeräumt; Dienst ist wieder frei.
 
 ### Verhalten bei Konflikt
 
@@ -148,6 +157,7 @@ Woche / Monat / Jahr (+ Mindestanzahl). Unreferenzierte Blobs werden per GC gel�
 | Variable | Rolle |
 |----------|--------|
 | `MAX_CONCURRENT_JOBS` | Max. parallele Jobs global (verschiedene Tenants) |
+| `MAX_CONCURRENT_FULL_JOBS` | Max. parallele Full-Syncs (Default 1) |
 | `EXCHANGE_WORKERS` | Parallele Mailbox-Worker **innerhalb** eines Exchange-Jobs |
 | `STORE_ROOT` | Wurzel der Tenant-Stores (Blobs/Manifeste/Exports) |
 

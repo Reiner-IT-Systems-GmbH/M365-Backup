@@ -37,13 +37,6 @@ func clampPct(pct int) int {
 	return pct
 }
 
-func (p *Progress) setMessage(msg string) {
-	if p == nil || p.DB == nil || p.JobID == "" || msg == "" {
-		return
-	}
-	_ = p.DB.UpdateJobProgressMessage(context.Background(), p.JobID, msg)
-}
-
 func (p *Progress) Emit(level, msg string) {
 	if p == nil {
 		return
@@ -63,9 +56,6 @@ func (p *Progress) Emit(level, msg string) {
 			Level:   level,
 			Message: msg,
 		})
-		if level == "info" || level == "warn" {
-			p.setMessage(msg)
-		}
 	}
 }
 

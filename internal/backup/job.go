@@ -23,16 +23,18 @@ import (
 )
 
 type Runner struct {
-	DB            *db.DB
-	Tenants       *tenant.Manager
-	Registry      *Registry
-	Store         *storage.Engine
-	Notifier      *notification.Service
-	StagingRoot   string
-	MaxConcurrent int
-	Log           *slog.Logger
+	DB                *db.DB
+	Tenants           *tenant.Manager
+	Registry          *Registry
+	Store             *storage.Engine
+	Notifier          *notification.Service
+	StagingRoot       string
+	MaxConcurrent     int
+	MaxConcurrentFull int
+	Log               *slog.Logger
 
 	sem          chan struct{}
+	fullSem      chan struct{}
 	mu           sync.Mutex
 	cancels      map[string]context.CancelFunc
 	enqueueMu    sync.Mutex
@@ -64,9 +66,19 @@ func NewRunner(database *db.DB, tenants *tenant.Manager, reg *Registry, store *s
 	}
 	return &Runner{
 		DB: database, Tenants: tenants, Registry: reg, Store: store, Notifier: notifier,
-		StagingRoot: staging, MaxConcurrent: maxConc, Log: log,
-		sem: make(chan struct{}, maxConc), cancels: map[string]context.CancelFunc{},
+		StagingRoot: staging, MaxConcurrent: maxConc, MaxConcurrentFull: 1, Log: log,
+		sem: make(chan struct{}, maxConc), fullSem: make(chan struct{}, 1),
+		cancels: map[string]context.CancelFunc{},
 	}
+}
+
+// SetMaxConcurrentFull caps how many job_type=full runs execute at once (default 1).
+func (r *Runner) SetMaxConcurrentFull(n int) {
+	if n < 1 {
+		n = 1
+	}
+	r.MaxConcurrentFull = n
+	r.fullSem = make(chan struct{}, n)
 }
 
 // RecoverOrphans marks queued/running jobs left behind by a previous process as failed
@@ -346,12 +358,61 @@ func (r *Runner) Cancel(ctx context.Context, jobID string) error {
 	return nil
 }
 
+// KillStale aborts a running job that stopped making progress (watchdog).
+func (r *Runner) KillStale(ctx context.Context, jobID, reason string) error {
+	job, err := r.DB.GetJob(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if job.Status != "running" {
+		return nil
+	}
+
+	r.mu.Lock()
+	if cancel, ok := r.cancels[jobID]; ok {
+		cancel()
+	}
+	r.mu.Unlock()
+
+	job.Status = "error"
+	job.ErrorMessage = reason
+	job.FinishedAt = time.Now().UTC()
+	job.ProgressMessage = "Stalled — " + reason
+	_ = r.DB.UpdateJob(ctx, job)
+	_ = r.DB.InsertJobLog(ctx, &db.JobLog{JobID: job.ID, Level: "error", Message: reason})
+	r.cleanStagingJob(jobID)
+	if r.Notifier != nil {
+		_ = r.Notifier.Send(ctx, notification.Event{
+			Type: notification.EventJobError, TenantID: job.TenantID,
+			Subject: "Backup stalled: " + notification.SafeService(job.Service),
+			Body:    reason,
+		})
+	}
+	r.Log.Warn("job killed (watchdog)", "id", jobID, "reason", reason)
+	return nil
+}
+
 func (r *Runner) runJob(jobID string) {
+	base := context.Background()
+	job, err := r.DB.GetJob(base, jobID)
+	if err != nil {
+		r.Log.Error("load job", "id", jobID, "err", err)
+		return
+	}
+	if job.Status == "cancelled" || job.Status == "error" {
+		r.Log.Info("job skipped (already closed)", "id", jobID, "status", job.Status)
+		return
+	}
+
+	if job.JobType == "full" && r.fullSem != nil {
+		r.Log.Info("waiting for full-sync slot", "id", jobID, "service", job.Service, "limit", r.MaxConcurrentFull)
+		r.fullSem <- struct{}{}
+		defer func() { <-r.fullSem }()
+	}
 	r.sem <- struct{}{}
 	defer func() { <-r.sem }()
 
-	base := context.Background()
-	job, err := r.DB.GetJob(base, jobID)
+	job, err = r.DB.GetJob(base, jobID)
 	if err != nil {
 		r.Log.Error("load job", "id", jobID, "err", err)
 		return
@@ -432,6 +493,10 @@ func (r *Runner) runJob(jobID string) {
 	if err != nil {
 		r.fail(ctx, job, err)
 		return
+	}
+	if job.JobType == "full" {
+		cat.SkipRematch = true
+		cat.TrackChanges = false
 	}
 	imported, needFull, err := cat.EnsureMigrated(ctx, job.Service, job.ID)
 	if err != nil {
@@ -526,7 +591,22 @@ func (r *Runner) runJob(jobID string) {
 	job.ProgressPct = 95
 	job.ProgressMessage = "Committing catalog snapshot…"
 	_ = r.DB.UpdateJobProgress(ctx, job)
-	snap, err := cat.CommitSnapshot(ctx, job.Service, job.ID)
+	snap, err := cat.CommitSnapshotWithProgress(ctx, job.Service, job.ID, func(done, total int, msg string) {
+		if msg == "" {
+			return
+		}
+		job.ProgressMessage = msg
+		if total > 0 && done > 0 {
+			// Keep bar in the 95–99% band while the manifest streams.
+			pct := 95 + (done*4)/total
+			if pct > 99 {
+				pct = 99
+			}
+			job.ProgressPct = pct
+		}
+		_ = r.DB.UpdateJobProgress(context.Background(), job)
+		prog.Emit("info", msg)
+	})
 	if err != nil {
 		if isCancelErr(err) || r.wasCancelled(job.ID) {
 			r.finishCancelled(ctx, job, "cancelled by user")
@@ -536,6 +616,38 @@ func (r *Runner) runJob(jobID string) {
 		return
 	}
 	catalog.RemoveLegacyDirs(t.StorePath)
+	if snap == nil || snap.Skipped {
+		skipMsg := "no catalog changes — snapshot skipped"
+		if snap != nil {
+			skipMsg = fmt.Sprintf("no catalog changes — snapshot skipped (generation %d)", snap.Generation)
+			job.SnapshotID = snap.ID
+		}
+		prog.Emit("info", skipMsg)
+		if r.wasCancelled(job.ID) {
+			r.finishCancelled(ctx, job, "cancelled by user")
+			return
+		}
+		job.ItemsNew = result.ItemsNew
+		job.ItemsTotal = result.ItemsTotal
+		job.BytesTransferred = result.BytesTransferred
+		job.FinishedAt = time.Now().UTC()
+		job.ProgressPct = 100
+		job.ProgressMessage = skipMsg
+		if len(result.Warnings) > 0 {
+			job.Status = "warning"
+			job.ErrorMessage = summarizeResult(result)
+		} else {
+			job.Status = "success"
+			job.ErrorMessage = summarizeResult(result)
+		}
+		if !result.livePersisted {
+			_ = r.persistLogs(ctx, job.ID, result.Logs)
+		}
+		_ = r.DB.UpdateJob(ctx, job)
+		r.Log.Info("job finished", "id", job.ID, "status", job.Status, "snapshot", "skipped",
+			"items", result.ItemsNew, "skipped", result.SkippedUsers, "warnings", len(result.Warnings))
+		return
+	}
 	if n, err := cat.ApplySmartRetention(ctx, policy); err != nil {
 		prog.Emit("warn", fmt.Sprintf("retention: %v", err))
 	} else if n > 0 {

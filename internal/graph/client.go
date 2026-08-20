@@ -2,17 +2,30 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	khttp "github.com/microsoft/kiota-http-go"
 	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
+	az "github.com/microsoftgraph/msgraph-sdk-go-core/authentication"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
+)
+
+const (
+	// SDKRequestTimeout bounds Graph SDK list/delta pages (not MIME downloads).
+	SDKRequestTimeout = 90 * time.Second
+	// MIMETimeout bounds GET /$value and /content. Transient failures retry a few times.
+	MIMETimeout     = 3 * time.Minute
+	mimeMaxAttempts = 3
 )
 
 // Client wraps Microsoft Graph with app-only credentials.
@@ -28,16 +41,28 @@ func New(ctx context.Context, tenantID, clientID, clientSecret string) (*Client,
 	if err != nil {
 		return nil, fmt.Errorf("azure credential: %w", err)
 	}
-	gc, err := msgraph.NewGraphServiceClientWithCredentials(cred, []string{"https://graph.microsoft.com/.default"})
+	auth, err := az.NewAzureIdentityAuthenticationProviderWithScopes(cred, []string{"https://graph.microsoft.com/.default"})
 	if err != nil {
-		return nil, fmt.Errorf("graph client: %w", err)
+		return nil, fmt.Errorf("graph auth: %w", err)
 	}
+	sdkClient := khttp.GetDefaultClient()
+	sdkClient.Timeout = SDKRequestTimeout
+	adapter, err := msgraph.NewGraphRequestAdapterWithParseNodeFactoryAndSerializationWriterFactoryAndHttpClient(auth, nil, nil, sdkClient)
+	if err != nil {
+		return nil, fmt.Errorf("graph adapter: %w", err)
+	}
+	gc := msgraph.NewGraphServiceClient(adapter)
 	return &Client{
 		Graph:  gc,
-		HTTP:   &http.Client{Timeout: 15 * time.Minute}, // large MIME downloads
+		HTTP:   &http.Client{Timeout: MIMETimeout},
 		Token:  cred,
 		Tenant: tenantID,
 	}, nil
+}
+
+// WithSDKTimeout caps a single Graph SDK request so a hung page does not stall the job.
+func WithSDKTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, SDKRequestTimeout)
 }
 
 func (c *Client) accessToken(ctx context.Context) (string, error) {
@@ -52,6 +77,29 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 
 // GetBytes fetches an arbitrary Graph URL (e.g. @microsoft.graph.downloadUrl or $value).
 func (c *Client) GetBytes(ctx context.Context, rawURL string) ([]byte, error) {
+	var lastErr error
+	for attempt := 1; attempt <= mimeMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		body, err := c.getBytesOnce(ctx, rawURL)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if !isRetryableGetBytesErr(err) || attempt == mimeMaxAttempts {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
+	}
+	return nil, lastErr
+}
+
+func (c *Client) getBytesOnce(ctx context.Context, rawURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -74,6 +122,34 @@ func (c *Client) GetBytes(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, fmt.Errorf("GET %s: status %d: %s", rawURL, resp.StatusCode, truncate(string(body), 200))
 	}
 	return body, nil
+}
+
+func isRetryableGetBytesErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "status 429"),
+		strings.Contains(s, "status 500"),
+		strings.Contains(s, "status 503"),
+		strings.Contains(s, "status 504"),
+		strings.Contains(s, "connection reset"),
+		strings.Contains(s, "unexpected eof"):
+		return true
+	default:
+		return false
+	}
 }
 
 // ListUsers returns all directory users that may have a mailbox (paginated).
@@ -111,7 +187,9 @@ func (c *Client) ListUsers(ctx context.Context) ([]models.Userable, error) {
 		if next == nil || *next == "" {
 			break
 		}
-		resp, err = c.Graph.Users().WithUrl(*next).Get(ctx, nil)
+		pageCtx, cancel := WithSDKTimeout(ctx)
+		resp, err = c.Graph.Users().WithUrl(*next).Get(pageCtx, nil)
+		cancel()
 		if err != nil {
 			return all, fmt.Errorf("users next page: %w", err)
 		}

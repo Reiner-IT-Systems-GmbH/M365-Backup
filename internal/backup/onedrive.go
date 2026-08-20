@@ -27,7 +27,7 @@ func (OneDriveBackup) Name() string { return "onedrive" }
 
 func (o OneDriveBackup) workers() int {
 	if o.Workers < 1 {
-		return 6
+		return 3
 	}
 	return o.Workers
 }
@@ -149,7 +149,10 @@ func (o OneDriveBackup) backupOneDrive(
 	prog.SyncJob(job, res, pctFor(), fmt.Sprintf("[%d/%d] OneDrive %s (%s)…", idx+1, total, upn, mode))
 
 	userKey := sanitize(upn)
-	n, warn := syncDriveDelta(ctx, gc, tokens, tenant.ID, uid, upn, driveID, userKey, saved, cat, res)
+	n, warn := syncDriveDelta(ctx, gc, tokens, tenant.ID, uid, upn, driveID, userKey, saved, cat, res, func(msg string) {
+		res.Info(msg)
+		prog.SyncJob(job, res, pctFor(), msg)
+	})
 	for _, w := range warn {
 		res.Warn(w)
 	}
@@ -168,7 +171,7 @@ func (o OneDriveBackup) backupOneDrive(
 }
 
 func syncDriveDelta(
-	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, driveID, mailbox, saved string, cat *catalog.Store, res *Result,
+	ctx context.Context, gc *graph.Client, tokens TokenStore, tenantID, userID, upn, driveID, mailbox, saved string, cat *catalog.Store, res *Result, live func(string),
 ) (int, []string) {
 	var warnings []string
 	hdr := abstractions.NewRequestHeaders()
@@ -186,7 +189,9 @@ func syncDriveDelta(
 		err  error
 	)
 	if saved != "" {
-		resp, err = deltaRB.WithUrl(saved).GetAsDeltaGetResponse(ctx, nil)
+		pageCtx, cancel := graph.WithSDKTimeout(ctx)
+		resp, err = deltaRB.WithUrl(saved).GetAsDeltaGetResponse(pageCtx, nil)
+		cancel()
 		if err != nil && isDeltaGone(err) {
 			res.Info(fmt.Sprintf("%s: OneDrive delta expired — full resync", upn))
 			saved = ""
@@ -194,7 +199,9 @@ func syncDriveDelta(
 		}
 	}
 	if saved == "" && err == nil {
-		resp, err = deltaRB.GetAsDeltaGetResponse(ctx, cfg)
+		pageCtx, cancel := graph.WithSDKTimeout(ctx)
+		resp, err = deltaRB.GetAsDeltaGetResponse(pageCtx, cfg)
+		cancel()
 	}
 	if err != nil {
 		if isDriveUnavailable(err) {
@@ -204,6 +211,8 @@ func syncDriveDelta(
 	}
 
 	n := 0
+	skippedStored := 0
+	progress := newDriveProgress()
 	for {
 		if err := ctx.Err(); err != nil {
 			return n, append(warnings, err.Error())
@@ -244,19 +253,36 @@ func syncDriveDelta(
 			if itemID == "" {
 				continue
 			}
+			parent := filepath.ToSlash(filepath.Dir(relSlash))
+			if parent == "." {
+				parent = ""
+			}
+			name := filepath.Base(relSlash)
+			existing, err := cat.LiveBlob(ctx, "onedrive", itemID)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("%s catalog %s: %v", upn, rel, err))
+				continue
+			}
+			if item.GetSize() != nil && skipContentDownload(existing, item.GetSize()) {
+				if err := refreshCatalogMeta(ctx, cat, existing, mailbox, parent, name, ""); err != nil {
+					warnings = append(warnings, err.Error())
+					continue
+				}
+				skippedStored++
+				res.addItems(1, 0)
+				n++
+				progress.maybeEmit(res, live, upn, n, skippedStored)
+				continue
+			}
 			contentURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/drives/%s/items/%s/content", driveID, itemID)
 			data, err := gc.GetBytes(ctx, contentURL)
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("%s %s: %v", upn, rel, err))
 				continue
 			}
-			parent := filepath.ToSlash(filepath.Dir(relSlash))
-			if parent == "." {
-				parent = ""
-			}
 			it := catalog.Item{
 				Service: "onedrive", GraphItemID: itemID, Mailbox: mailbox,
-				ParentPath: parent, Name: filepath.Base(relSlash),
+				ParentPath: parent, Name: name,
 			}
 			if err := cat.Put(ctx, it, data); err != nil {
 				warnings = append(warnings, err.Error())
@@ -264,24 +290,20 @@ func syncDriveDelta(
 			}
 			res.addItems(1, int64(len(data)))
 			n++
-			if n%100 == 0 {
-				res.Info(fmt.Sprintf("%s: progress %d file change(s) (not a limit)…", upn, n))
-			}
+			progress.maybeEmit(res, live, upn, n, skippedStored)
 		}
 		next := resp.GetOdataNextLink()
+		delta := resp.GetOdataDeltaLink()
+		persistDeltaURL(ctx, tokens, tenantID, "onedrive", userID, odataResumeURL(next, delta))
 		if next != nil && *next != "" {
-			resp, err = deltaRB.WithUrl(*next).GetAsDeltaGetResponse(ctx, nil)
+			pageCtx, cancel := graph.WithSDKTimeout(ctx)
+			resp, err = deltaRB.WithUrl(*next).GetAsDeltaGetResponse(pageCtx, nil)
+			cancel()
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("%s page: %v", upn, err))
 				break
 			}
 			continue
-		}
-		delta := resp.GetOdataDeltaLink()
-		if delta != nil && *delta != "" {
-			_ = tokens.UpsertDeltaToken(ctx, db.DeltaToken{
-				TenantID: tenantID, Service: "onedrive", UserID: userID, Token: *delta,
-			})
 		}
 		break
 	}

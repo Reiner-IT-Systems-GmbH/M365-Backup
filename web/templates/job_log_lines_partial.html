@@ -1,0 +1,10 @@
+{{define "job_log_lines_partial.html"}}
+{{range .Logs}}
+{{if ne .Level "skip"}}
+<div class="log-line log-{{.Level}}">
+  <span class="log-lvl">{{.Level}}</span>
+  <span class="log-msg">{{.Message}}</span>
+</div>
+{{end}}
+{{end}}
+{{end}}

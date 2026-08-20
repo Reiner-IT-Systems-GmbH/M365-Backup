@@ -273,6 +273,20 @@ func (d *DB) ListJobs(ctx context.Context, tenantID string, limit int) ([]Job, e
 	return scanJobs(rows)
 }
 
+// ListRunningJobs returns jobs with status=running.
+func (d *DB) ListRunningJobs(ctx context.Context) ([]Job, error) {
+	rows, err := d.SQL.QueryContext(ctx, `
+		SELECT id, tenant_id, COALESCE(schedule_id,''), service, job_type, status, started_at, finished_at,
+			items_new, items_total, bytes_transferred, COALESCE(error_message,''), COALESCE(snapshot_id,''),
+			progress_pct, COALESCE(progress_message,''), COALESCE(params,''), created_at
+		FROM jobs WHERE status='running' ORDER BY started_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanJobs(rows)
+}
+
 func (d *DB) GetJob(ctx context.Context, id string) (*Job, error) {
 	row := d.SQL.QueryRowContext(ctx, `
 		SELECT id, tenant_id, COALESCE(schedule_id,''), service, job_type, status, started_at, finished_at,

@@ -88,6 +88,8 @@ func main() {
 		backup.PSTExport{},
 	)
 	runner := backup.NewRunner(database, tenants, reg, store, notifier, cfg.StagingRoot, cfg.MaxConcurrentJobs, log)
+	runner.SetMaxConcurrentFull(cfg.MaxConcurrentFull)
+	log.Info("job limits", "concurrent", cfg.MaxConcurrentJobs, "full", cfg.MaxConcurrentFull, "workers", cfg.ExchangeWorkers)
 	runner.RecoverOrphans(context.Background())
 	usageScan := backup.NewUsageScanner(database, store, tenants, log)
 	sched := backup.NewScheduler(database, runner, log)
@@ -97,6 +99,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer sched.Stop()
+
+	wd := backup.NewWatchdog(runner, database, 5*time.Minute, cfg.JobStallTimeout)
+	wd.Log = log
+	wd.Start(context.Background())
+	if cfg.JobStallTimeout > 0 {
+		log.Info("job watchdog enabled", "stall", cfg.JobStallTimeout)
+	}
 
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"fmtTime": func(t time.Time, layout string) string {

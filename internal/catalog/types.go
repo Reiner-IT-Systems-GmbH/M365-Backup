@@ -56,6 +56,9 @@ type Snapshot struct {
 	CreatedAt  time.Time
 	ItemsLive  int
 	BytesLive  int64
+	// Skipped is true when CommitSnapshot reused the existing generation because
+	// there were no pending catalog changes (no new manifest / ListLiveItems).
+	Skipped bool
 }
 
 func (s Snapshot) Info() storage.SnapshotInfo {

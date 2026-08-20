@@ -26,7 +26,7 @@ Install/Deploy-Anleitung bleibt im Root-[README.md](../README.md). Sicherheitshi
 ## Leitprinzipien (Kurz)
 
 1. **Multi-Tenant Control Plane** — viele Kunden-Tenants, ein Binary, getrennte Store-Roots.
-2. **Zwei Inkrement-Ebenen** — Graph-Delta in den Katalog + SHA-256 CAS (Blobs).
+2. **Inkrement-Ebenen** — Graph-Delta in den Katalog, Skip bereits gespeicherter Blobs, SHA-256 CAS.
 3. **Offline-Recovery ohne App** — `blobs/` + `manifests/` + Store-Passwort reichen für `m365-restore`.
 4. **Ein aktiver Job pro Dienst** — gleiche Services nicht parallel; unterschiedliche Dienste dürfen parallel.
 5. **Secrets nie im Repo** — nur Env / verschlüsselt in der DB; siehe Workspace-Regel „No Secrets“.

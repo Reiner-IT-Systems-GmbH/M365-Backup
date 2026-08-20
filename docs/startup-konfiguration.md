@@ -17,8 +17,9 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 10. backup.NewRunner(...)
 11. RecoverOrphans()        hängende Jobs → error, Staging purgen
 12. Scheduler.Start()       Cron + Keycheck + Usage-Scan
-13. Templates/Static embed → api.Server → ListenAndServe
-14. SIGINT/SIGTERM → Shutdown (15s)
+13. Watchdog.Start()        `running`-Jobs ohne Fortschritt beenden (alle 5 min)
+14. Templates/Static embed → api.Server → ListenAndServe
+15. SIGINT/SIGTERM → Shutdown (15s)
 ```
 
 ### Warum diese Reihenfolge?
@@ -44,8 +45,10 @@ Alles startet in einem Composition Root — **kein** DI-Framework. Die Reihenfol
 | `MYSQL_DSN` / `MYSQL_*` | — | MySQL (Compose/Prod) |
 | `STORE_ROOT` | `./data/store` | Wurzel aller Tenant-Stores (Blobs/Manifeste/Exports) |
 | `STAGING_ROOT` | `./data/staging` | Ephemere Job-Verzeichnisse |
-| `MAX_CONCURRENT_JOBS` | `2` | Globales Semaphore (verschiedene Tenants); Full-Sync blockiert Inkremente desselben Tenants |
-| `EXCHANGE_WORKERS` | `6` (max 32) | Parallele Mailbox-/Drive-Worker **innerhalb** eines Jobs |
+| `MAX_CONCURRENT_JOBS` | `2` | Globales Semaphore (verschiedene Tenants) |
+| `MAX_CONCURRENT_FULL_JOBS` | `1` | Parallele Full-Syncs; Rest bleibt queued |
+| `JOB_STALL_TIMEOUT` | `2h` | Watchdog: `running`-Job ohne Fortschritt beenden (`0` = aus) |
+| `EXCHANGE_WORKERS` | `3` (max 32) | Parallele Mailbox-/Drive-Worker **innerhalb** eines Jobs |
 | `DISPLAY_TZ` | `Europe/Berlin` (sonst `TZ`) | IANA-Zone für UI-Zeiten; DB bleibt UTC |
 | `SMTP_*` | — | Fallback-Notifier (siehe Benachrichtigungen) |
 
