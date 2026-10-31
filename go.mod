@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
-	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/gofrs/flock v0.13.0
 	github.com/google/uuid v1.6.0
